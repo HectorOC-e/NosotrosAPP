@@ -5,9 +5,14 @@ import { useRouter } from "next/navigation";
 import { BrandMark } from "@/components/brand-mark";
 import { Button } from "@/components/ui/button";
 import { LabeledField } from "@/components/ui/labeled-field";
-import { beginCreate, beginJoin, type BeginResult } from "@/lib/actions/onboarding";
+import {
+  beginCreate,
+  beginJoin,
+  signIn,
+  type BeginResult,
+} from "@/lib/actions/onboarding";
 
-type Step = "choice" | "create" | "join" | "confirm";
+type Step = "choice" | "create" | "join" | "confirm" | "login";
 
 const LINK_ERROR =
   "Ese enlace no funcionó o expiró. Vuelvan a crear el espacio o unirse.";
@@ -25,6 +30,9 @@ export function AuthFlow({ linkError = false }: { linkError?: boolean }) {
   const [joinCorreo, setJoinCorreo] = useState("");
   const [joinPass, setJoinPass] = useState("");
   const [joinCode, setJoinCode] = useState("");
+
+  const [loginCorreo, setLoginCorreo] = useState("");
+  const [loginPass, setLoginPass] = useState("");
 
   const [confirmEmail, setConfirmEmail] = useState("");
   const [error, setError] = useState<string | null>(linkError ? LINK_ERROR : null);
@@ -67,6 +75,24 @@ export function AuthFlow({ linkError = false }: { linkError?: boolean }) {
           code: joinCode,
         }),
       );
+    });
+  }
+
+  function submitLogin(e: React.FormEvent) {
+    e.preventDefault();
+    setError(null);
+    startTransition(async () => {
+      const res = await signIn({ correo: loginCorreo, pass: loginPass });
+      if (res.status === "app") {
+        router.push("/inicio");
+        router.refresh();
+      } else if (res.status === "onboarding") {
+        // Signed in but not paired yet — send them to create/join (completes instantly).
+        setStep("choice");
+        router.refresh();
+      } else {
+        setError(res.error);
+      }
     });
   }
 
@@ -114,6 +140,18 @@ export function AuthFlow({ linkError = false }: { linkError?: boolean }) {
               </span>
             </button>
           </div>
+          <p className="mt-7 text-center text-[13.5px] text-ink-secondary">
+            ¿Ya tienen espacio?{" "}
+            <button
+              onClick={() => {
+                setError(null);
+                setStep("login");
+              }}
+              className="font-semibold text-rosa transition hover:text-violeta"
+            >
+              Inicia sesión
+            </button>
+          </p>
         </>
       )}
 
@@ -214,6 +252,52 @@ export function AuthFlow({ linkError = false }: { linkError?: boolean }) {
               {pending ? "Enviando…" : "Unirme"}
             </Button>
           </form>
+        </>
+      )}
+
+      {step === "login" && (
+        <>
+          <BackLink onClick={() => setStep("choice")} />
+          <h2 className="mb-1.5 font-serif text-[26px] font-medium italic text-ink">
+            Hola de nuevo
+          </h2>
+          <p className="mb-[26px] text-[14px] text-ink-secondary">
+            Entra con el correo y la contraseña de su espacio.
+          </p>
+          <form onSubmit={submitLogin} className="flex flex-col gap-4">
+            <LabeledField
+              label="Correo"
+              type="email"
+              required
+              value={loginCorreo}
+              onChange={(e) => setLoginCorreo(e.target.value)}
+              placeholder="tucorreo@ejemplo.com"
+            />
+            <LabeledField
+              label="Contraseña"
+              type="password"
+              required
+              value={loginPass}
+              onChange={(e) => setLoginPass(e.target.value)}
+              placeholder="Tu contraseña"
+            />
+            {error && <ErrorPanel>{error}</ErrorPanel>}
+            <Button type="submit" disabled={pending} className="mt-2.5 py-4">
+              {pending ? "Entrando…" : "Iniciar sesión"}
+            </Button>
+          </form>
+          <p className="mt-6 text-center text-[13.5px] text-ink-secondary">
+            ¿Nuevos aquí?{" "}
+            <button
+              onClick={() => {
+                setError(null);
+                setStep("choice");
+              }}
+              className="font-semibold text-rosa transition hover:text-violeta"
+            >
+              Crear o unirse
+            </button>
+          </p>
         </>
       )}
 

@@ -77,6 +77,46 @@ export async function beginJoin(
   return begin(input, { kind: "join", nombre: input.nombre, code: input.code });
 }
 
+/** Result of a returning-user sign-in. */
+export type SignInResult =
+  | { status: "app" } // authenticated and already paired → go to the app
+  | { status: "onboarding" } // authenticated but not paired yet → finish onboarding
+  | { status: "error"; error: string };
+
+/** Signs a returning user in with email + password. */
+export async function signIn(input: {
+  correo: string;
+  pass: string;
+}): Promise<SignInResult> {
+  const supabase = await createClient();
+  const { data, error } = await supabase.auth.signInWithPassword({
+    email: input.correo.trim(),
+    password: input.pass,
+  });
+
+  if (error) {
+    const m = error.message.toLowerCase();
+    if (m.includes("not confirmed") || m.includes("confirm"))
+      return {
+        status: "error",
+        error: "Aún no confirmas tu correo — revisa tu bandeja (y el spam).",
+      };
+    if (m.includes("invalid") || m.includes("credentials"))
+      return { status: "error", error: "Correo o contraseña incorrectos." };
+    if (m.includes("rate limit"))
+      return { status: "error", error: "Demasiados intentos. Esperen un momento." };
+    return { status: "error", error: "No pudimos iniciar sesión. Inténtalo de nuevo." };
+  }
+
+  const { data: profile } = await supabase
+    .from("profiles")
+    .select("couple_id")
+    .eq("id", data.user.id)
+    .maybeSingle();
+
+  return { status: profile?.couple_id ? "app" : "onboarding" };
+}
+
 export async function signOut() {
   const supabase = await createClient();
   await supabase.auth.signOut();
