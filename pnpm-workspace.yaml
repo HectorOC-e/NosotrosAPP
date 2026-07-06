@@ -1,0 +1,5 @@
+# Approve post-install build scripts for these native deps (needed by Next's
+# image optimization / eslint resolver). Keeps `pnpm install` exit 0.
+allowBuilds:
+  sharp: true
+  unrs-resolver: true

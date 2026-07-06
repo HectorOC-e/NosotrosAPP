@@ -1,0 +1,123 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  * {
+    @apply border-border;
+    box-sizing: border-box;
+  }
+  html {
+    color-scheme: dark;
+  }
+  body {
+    @apply bg-bg text-ink font-sans antialiased;
+    margin: 0;
+    text-rendering: optimizeLegibility;
+  }
+  input::placeholder,
+  textarea::placeholder {
+    color: #6b6380;
+  }
+  /* Numbers — amounts, codes, dates, percentages — always mono. */
+  .tnum {
+    font-family: var(--font-jetbrains), monospace;
+    font-variant-numeric: tabular-nums;
+  }
+  /* Animated dashed connector for the brand mark. */
+  @keyframes dashMove {
+    to {
+      stroke-dashoffset: -16;
+    }
+  }
+  ::-webkit-scrollbar {
+    width: 6px;
+  }
+  ::-webkit-scrollbar-thumb {
+    background: rgba(255, 255, 255, 0.12);
+    border-radius: 3px;
+  }
+}
+
+@layer components {
+  /* Phone-shaped panel, centered on desktop, with the corner accent gradients. */
+  .app-panel {
+    width: 100%;
+    max-width: 430px;
+    min-height: 100dvh;
+    position: relative;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+    background:
+      radial-gradient(circle at -10% -10%, rgba(139, 124, 255, 0.3), transparent 45%),
+      radial-gradient(circle at 110% -5%, rgba(255, 111, 145, 0.28), transparent 45%),
+      #120f17;
+    box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.04);
+  }
+
+  /* Glassmorphism card surfaces. */
+  .glass {
+    background: rgba(255, 255, 255, 0.055);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    backdrop-filter: blur(20px);
+  }
+  .glass-subtle {
+    background: rgba(255, 255, 255, 0.04);
+    border: 1px solid rgba(255, 255, 255, 0.07);
+  }
+
+  /* Primary gradient button. */
+  .btn-primary {
+    background: linear-gradient(135deg, #ff6f91, #8b7cff);
+    color: #120f17;
+    font-weight: 700;
+    border: none;
+    border-radius: 999px;
+    cursor: pointer;
+    transition: filter 0.15s ease;
+  }
+  .btn-primary:hover {
+    filter: brightness(1.08);
+  }
+  .btn-primary:focus-visible {
+    outline: 2px solid #f2eef9;
+    outline-offset: 2px;
+  }
+
+  /* Secondary / ghost button. */
+  .btn-ghost {
+    background: rgba(255, 255, 255, 0.06);
+    border: 1px solid rgba(255, 255, 255, 0.14);
+    color: #f2eef9;
+    border-radius: 999px;
+    cursor: pointer;
+    transition: background 0.15s ease;
+  }
+  .btn-ghost:hover {
+    background: rgba(255, 255, 255, 0.1);
+  }
+
+  /* Labeled text input. */
+  .field {
+    padding: 14px 16px;
+    border-radius: 14px;
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    background: rgba(255, 255, 255, 0.05);
+    color: #f2eef9;
+    font-size: 15px;
+    width: 100%;
+  }
+  .field:focus-visible {
+    outline: 2px solid #8b7cff;
+    outline-offset: 1px;
+    border-color: transparent;
+  }
+
+  /* Small caps section label. */
+  .eyebrow {
+    font-size: 12px;
+    color: #a79fbd;
+    letter-spacing: 0.02em;
+  }
+}
