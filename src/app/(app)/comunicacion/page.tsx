@@ -25,13 +25,22 @@ export default async function ComunicacionPage() {
 
   // Readiness is visible to BOTH partners; ai_settings SELECT is creator-only,
   // so check with the service role (server-side; only a boolean leaves this scope).
-  const service = createServiceClient();
-  const { data: cfg } = await service
-    .from("ai_settings")
-    .select("api_key_secret_id")
-    .eq("couple_id", ctx!.couple!.id)
-    .maybeSingle();
-  const hasAiKey = !!cfg?.api_key_secret_id;
+  // Degrade gracefully if the service-role key isn't configured (e.g. env var not
+  // yet set in a given environment): show the mediator gate instead of erroring.
+  let hasAiKey = false;
+  if (process.env.SUPABASE_SERVICE_ROLE_KEY) {
+    try {
+      const service = createServiceClient();
+      const { data: cfg } = await service
+        .from("ai_settings")
+        .select("api_key_secret_id")
+        .eq("couple_id", ctx!.couple!.id)
+        .maybeSingle();
+      hasAiKey = !!cfg?.api_key_secret_id;
+    } catch {
+      hasAiKey = false;
+    }
+  }
 
   const emojiFor = (id: string | null) =>
     moods?.find((m) => m.profile_id === id)?.mood_emoji ?? null;
