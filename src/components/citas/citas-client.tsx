@@ -9,7 +9,9 @@ import {
   COST_COLOR,
   type CostCat,
 } from "@/lib/constants";
-import { addIdea, setFavorite, startDate } from "@/lib/actions/citas";
+import { addIdea, setFavorite, startDate, saveGeneratedIdea } from "@/lib/actions/citas";
+import { generateDateIdea } from "@/lib/actions/ai";
+import { aiReasonMessage } from "@/lib/ai/reason-messages";
 
 export type IdeaView = {
   id: string;
@@ -67,6 +69,48 @@ export function CitasClient({ ideas }: { ideas: IdeaView[] }) {
     });
   }
 
+  const [aiIdea, setAiIdea] = useState<{ text: string; cost: CostCat } | null>(null);
+  const [aiGenerating, setAiGenerating] = useState(false);
+  const [aiError, setAiError] = useState<string | null>(null);
+
+  const costFilter = selectedFilters.find((f) =>
+    (COST_CATS as readonly string[]).includes(f),
+  );
+
+  function generateAi() {
+    setAiError(null);
+    setAiGenerating(true);
+    startTransition(async () => {
+      try {
+        const r = await generateDateIdea({ costFilter });
+        if (r.ok && r.idea) setAiIdea(r.idea);
+        else setAiError(aiReasonMessage(r.reason));
+      } catch {
+        setAiError(aiReasonMessage("fallo"));
+      } finally {
+        setAiGenerating(false);
+      }
+    });
+  }
+
+  function saveAi() {
+    if (!aiIdea) return;
+    const idea = aiIdea;
+    startTransition(async () => {
+      try {
+        await saveGeneratedIdea(idea);
+        setAiIdea(null);
+      } catch {
+        setAiError(aiReasonMessage("fallo"));
+      }
+    });
+  }
+
+  function backToPool() {
+    setAiIdea(null);
+    setAiError(null);
+  }
+
   function submitIdea(e: React.FormEvent) {
     e.preventDefault();
     const text = newIdeaText.trim();
@@ -113,7 +157,36 @@ export function CitasClient({ ideas }: { ideas: IdeaView[] }) {
 
       {/* Central idea card */}
       <div className="glass mb-4 flex min-h-[150px] flex-col justify-center rounded-[26px] p-[26px_22px]">
-        {displayIdea ? (
+        {aiGenerating ? (
+          <div className="text-center text-[14.5px] text-ink-secondary">
+            Pensando una idea… ✨
+          </div>
+        ) : aiIdea ? (
+          <>
+            <div className="mb-3.5 flex flex-wrap items-center gap-1.5">
+              <span className="rounded-full bg-violeta/20 px-2.5 py-1 text-[11px] text-violeta">
+                ✨ Sugerencia de IA · sin guardar
+              </span>
+              <span className="rounded-full bg-violeta/15 px-2.5 py-1 text-[11px] text-violeta">
+                {aiIdea.cost}
+              </span>
+            </div>
+            <div className="mb-5 font-serif text-[21px] font-medium italic leading-[1.4] text-ink">
+              {aiIdea.text}
+            </div>
+            <div className="flex gap-2.5">
+              <Button size="md" onClick={saveAi} disabled={pending} className="flex-1 py-[13px]">
+                ♡ Guardar
+              </Button>
+              <Button variant="ghost" size="md" onClick={generateAi} disabled={pending} className="px-4 py-[13px]">
+                Otra ✨
+              </Button>
+              <Button variant="ghost" size="md" onClick={backToPool} disabled={pending} className="px-4 py-[13px]">
+                Volver
+              </Button>
+            </div>
+          </>
+        ) : displayIdea ? (
           <>
             <div className="mb-3.5 flex flex-wrap gap-1.5">
               {displayIdea.tags.map((tag) => (
@@ -151,11 +224,30 @@ export function CitasClient({ ideas }: { ideas: IdeaView[] }) {
               >
                 Empezar esta cita →
               </Button>
+              <Button
+                variant="ghost"
+                size="md"
+                onClick={generateAi}
+                disabled={pending}
+                className="w-full py-[13px]"
+              >
+                Sorpréndenos con IA ✨
+              </Button>
             </div>
           </>
         ) : (
-          <div className="text-center text-[14.5px] text-ink-secondary">
-            No hay ideas con esos filtros — agreguen una abajo 👇
+          <div className="flex flex-col items-center gap-4">
+            <div className="text-center text-[14.5px] text-ink-secondary">
+              No hay ideas con esos filtros — agreguen una abajo 👇
+            </div>
+            <Button size="md" onClick={generateAi} disabled={pending} className="w-full py-[13px]">
+              Sorpréndenos con IA ✨
+            </Button>
+          </div>
+        )}
+        {aiError && (
+          <div className="mt-3 text-center text-[13px]" style={{ color: "#FF6B6B" }}>
+            {aiError}
           </div>
         )}
       </div>

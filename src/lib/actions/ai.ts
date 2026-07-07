@@ -12,8 +12,11 @@ import {
   chatSystem,
   reflectionUserPrompt,
   summarizeMoods,
+  dateIdeaMessages,
+  guidingQuestionMessages,
+  parseDateIdea,
 } from "@/lib/ai/prompts";
-import { TOPICS, DEFAULT_AI_MODEL } from "@/lib/constants";
+import { TOPICS, DEFAULT_AI_MODEL, type CostCat } from "@/lib/constants";
 import { toInputDate } from "@/lib/format";
 
 /** Creator saves provider/model/key. Errors surface as a warm string. */
@@ -156,4 +159,69 @@ export async function generateWeeklyReflection(): Promise<{
 }> {
   const ctx = await requireCouple();
   return runMediator(ctx, "summary");
+}
+
+/**
+ * Shared one-shot AI call: reads the couple key (service-role), calls OpenRouter,
+ * maps errors to warm reasons. Returns the raw assistant text on success.
+ */
+async function callCoupleAI(
+  coupleId: string,
+  messages: ChatMessage[],
+): Promise<{ ok: boolean; text?: string; reason?: Reason }> {
+  const service = createServiceClient();
+  const { data: cfgRows, error: cfgErr } = await service.rpc(
+    "get_couple_ai_key",
+    { p_couple_id: coupleId },
+  );
+  if (cfgErr) return { ok: false, reason: "fallo" };
+  const cfg = cfgRows?.[0];
+  if (!cfg?.api_key) return { ok: false, reason: "sin-key" };
+  const model = cfg.model || DEFAULT_AI_MODEL;
+  try {
+    const text = await callOpenRouter({ apiKey: cfg.api_key, model, messages });
+    return { ok: true, text };
+  } catch (e) {
+    const status = e instanceof OpenRouterError ? e.status : 0;
+    if (status === 429) return { ok: false, reason: "saturado" };
+    if (status === 402) return { ok: false, reason: "credito" };
+    if (status === 401 || status === 403) return { ok: false, reason: "auth" };
+    return { ok: false, reason: "fallo" };
+  }
+}
+
+/** Generates one fresh AI date idea, respecting the cost filter and avoiding existing ideas. */
+export async function generateDateIdea(input: {
+  costFilter?: string;
+}): Promise<{ ok: boolean; idea?: { text: string; cost: CostCat }; reason?: Reason }> {
+  const { supabase, coupleId } = await requireCouple();
+  const { data: existing } = await supabase
+    .from("date_ideas")
+    .select("text")
+    .limit(15);
+  const avoid = (existing ?? []).map((r) => r.text);
+  const res = await callCoupleAI(
+    coupleId,
+    dateIdeaMessages({ costFilter: input.costFilter, avoid }),
+  );
+  if (!res.ok || !res.text) return { ok: false, reason: res.reason ?? "fallo" };
+  return { ok: true, idea: parseDateIdea(res.text, input.costFilter) };
+}
+
+/** Generates one fresh guiding question, informed by the week's moods. Ephemeral. */
+export async function generateGuidingQuestion(): Promise<{
+  ok: boolean;
+  question?: string;
+  reason?: Reason;
+}> {
+  const { supabase, coupleId } = await requireCouple();
+  const since = toInputDate(new Date(Date.now() - 7 * 86_400_000));
+  const { data: moods } = await supabase
+    .from("moods")
+    .select("mood_emoji, mood_date")
+    .gte("mood_date", since);
+  const moodSummary = summarizeMoods(moods ?? []);
+  const res = await callCoupleAI(coupleId, guidingQuestionMessages({ moodSummary }));
+  if (!res.ok || !res.text) return { ok: false, reason: res.reason ?? "fallo" };
+  return { ok: true, question: res.text };
 }

@@ -59,3 +59,23 @@ export async function startDate(dateIdeaId: string): Promise<{ ok: boolean }> {
   revalidatePath("/inicio");
   return { ok: true };
 }
+
+/** Persists an AI-generated idea to the couple's favorites. */
+export async function saveGeneratedIdea(input: {
+  text: string;
+  cost: CostCat;
+}): Promise<void> {
+  const { supabase, coupleId, userId } = await requireCouple();
+  const text = input.text.trim();
+  if (!text) return;
+  const { error } = await supabase.from("date_ideas").insert({
+    couple_id: coupleId,
+    created_by: userId,
+    text,
+    cost: input.cost,
+    vibe: null,
+    is_favorite: true,
+  });
+  if (error) throw error;
+  revalidatePath("/citas");
+}
