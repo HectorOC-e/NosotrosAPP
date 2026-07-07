@@ -26,10 +26,20 @@ export function MediatorPanel({
   const [pending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
 
-  const warm = (reason?: string) =>
-    reason === "sin-key"
-      ? "El mediador aún no está activo."
-      : "El mediador no pudo responder ahora, intenten de nuevo.";
+  const warm = (reason?: string) => {
+    switch (reason) {
+      case "sin-key":
+        return "El mediador aún no está activo.";
+      case "saturado":
+        return "El modelo está saturado ahora mismo (suele pasar con los modelos gratuitos). Prueben de nuevo en un momento, o elijan otro modelo en Ajustes.";
+      case "credito":
+        return "Tu cuenta de OpenRouter necesita más créditos para este modelo. Agrégalos, o elige un modelo más económico en Ajustes.";
+      case "auth":
+        return "Hay un problema con la API key de OpenRouter. Revísala en Ajustes.";
+      default:
+        return "El mediador no pudo responder ahora, intenten de nuevo.";
+    }
+  };
 
   function onSend() {
     const t = text.trim();

@@ -3,7 +3,11 @@
 import { revalidatePath } from "next/cache";
 import { requireCouple } from "@/lib/actions/context";
 import { createServiceClient } from "@/lib/supabase/service";
-import { callOpenRouter, type ChatMessage } from "@/lib/ai/openrouter";
+import {
+  callOpenRouter,
+  OpenRouterError,
+  type ChatMessage,
+} from "@/lib/ai/openrouter";
 import {
   chatSystem,
   reflectionUserPrompt,
@@ -34,7 +38,7 @@ export async function saveAiConfig(input: {
   return { ok: true };
 }
 
-type Reason = "sin-key" | "fallo";
+type Reason = "sin-key" | "fallo" | "saturado" | "credito" | "auth";
 
 type CoupleCtx = Awaited<ReturnType<typeof requireCouple>>;
 
@@ -102,7 +106,11 @@ async function runMediator(
   let reply: string;
   try {
     reply = await callOpenRouter({ apiKey: cfg.api_key, model, messages });
-  } catch {
+  } catch (e) {
+    const status = e instanceof OpenRouterError ? e.status : 0;
+    if (status === 429) return { ok: false, reason: "saturado" };
+    if (status === 402) return { ok: false, reason: "credito" };
+    if (status === 401 || status === 403) return { ok: false, reason: "auth" };
     return { ok: false, reason: "fallo" };
   }
 
