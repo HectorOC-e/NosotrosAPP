@@ -108,6 +108,7 @@ export type Database = {
         Row: {
           couple_id: string
           created_at: string
+          date_idea_id: string | null
           id: string
           label: string
           limit_amount: number
@@ -115,6 +116,7 @@ export type Database = {
         Insert: {
           couple_id: string
           created_at?: string
+          date_idea_id?: string | null
           id?: string
           label?: string
           limit_amount?: number
@@ -122,6 +124,7 @@ export type Database = {
         Update: {
           couple_id?: string
           created_at?: string
+          date_idea_id?: string | null
           id?: string
           label?: string
           limit_amount?: number
@@ -132,6 +135,13 @@ export type Database = {
             columns: ["couple_id"]
             isOneToOne: false
             referencedRelation: "couples"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "budgets_date_idea_id_fkey"
+            columns: ["date_idea_id"]
+            isOneToOne: false
+            referencedRelation: "date_ideas"
             referencedColumns: ["id"]
           },
         ]
