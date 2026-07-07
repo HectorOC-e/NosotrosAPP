@@ -7,11 +7,58 @@ export type Json =
   | Json[]
 
 export type Database = {
+  // Allows to automatically instantiate createClient with right options
+  // instead of createClient<Database, { PostgrestVersion: 'XX' }>(URL, KEY)
   __InternalSupabase: {
     PostgrestVersion: "14.5"
   }
   public: {
     Tables: {
+      ai_messages: {
+        Row: {
+          content: string
+          couple_id: string
+          created_at: string
+          created_by: string | null
+          id: string
+          kind: string
+          role: string
+        }
+        Insert: {
+          content: string
+          couple_id: string
+          created_at?: string
+          created_by?: string | null
+          id?: string
+          kind?: string
+          role: string
+        }
+        Update: {
+          content?: string
+          couple_id?: string
+          created_at?: string
+          created_by?: string | null
+          id?: string
+          kind?: string
+          role?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "ai_messages_couple_id_fkey"
+            columns: ["couple_id"]
+            isOneToOne: false
+            referencedRelation: "couples"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "ai_messages_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       ai_settings: {
         Row: {
           api_key_secret_id: string | null
@@ -337,11 +384,23 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
-      generate_invite_code: { Args: Record<PropertyKey, never>; Returns: string }
-      get_my_couple_id: { Args: Record<PropertyKey, never>; Returns: string }
+      generate_invite_code: { Args: never; Returns: string }
+      get_couple_ai_key: {
+        Args: { p_couple_id: string }
+        Returns: {
+          api_key: string
+          model: string
+          provider: string
+        }[]
+      }
+      get_my_couple_id: { Args: never; Returns: string }
       join_couple_by_code: {
         Args: { p_code: string; p_display_name?: string }
         Returns: string
+      }
+      set_ai_config: {
+        Args: { p_key: string; p_model: string; p_provider: string }
+        Returns: undefined
       }
     }
     Enums: {
@@ -436,6 +495,46 @@ export type TablesUpdate<
       : never
     : never
 
+export type Enums<
+  DefaultSchemaEnumNameOrOptions extends
+    | keyof DefaultSchema["Enums"]
+    | { schema: keyof DatabaseWithoutInternals },
+  EnumName extends DefaultSchemaEnumNameOrOptions extends {
+    schema: keyof DatabaseWithoutInternals
+  }
+    ? keyof DatabaseWithoutInternals[DefaultSchemaEnumNameOrOptions["schema"]]["Enums"]
+    : never = never,
+> = DefaultSchemaEnumNameOrOptions extends {
+  schema: keyof DatabaseWithoutInternals
+}
+  ? DatabaseWithoutInternals[DefaultSchemaEnumNameOrOptions["schema"]]["Enums"][EnumName]
+  : DefaultSchemaEnumNameOrOptions extends keyof DefaultSchema["Enums"]
+    ? DefaultSchema["Enums"][DefaultSchemaEnumNameOrOptions]
+    : never
+
+export type CompositeTypes<
+  PublicCompositeTypeNameOrOptions extends
+    | keyof DefaultSchema["CompositeTypes"]
+    | { schema: keyof DatabaseWithoutInternals },
+  CompositeTypeName extends PublicCompositeTypeNameOrOptions extends {
+    schema: keyof DatabaseWithoutInternals
+  }
+    ? keyof DatabaseWithoutInternals[PublicCompositeTypeNameOrOptions["schema"]]["CompositeTypes"]
+    : never = never,
+> = PublicCompositeTypeNameOrOptions extends {
+  schema: keyof DatabaseWithoutInternals
+}
+  ? DatabaseWithoutInternals[PublicCompositeTypeNameOrOptions["schema"]]["CompositeTypes"][CompositeTypeName]
+  : PublicCompositeTypeNameOrOptions extends keyof DefaultSchema["CompositeTypes"]
+    ? DefaultSchema["CompositeTypes"][PublicCompositeTypeNameOrOptions]
+    : never
+
+export const Constants = {
+  public: {
+    Enums: {},
+  },
+} as const
+
 // ── Convenience row aliases ───────────────────────────────────────────
 export type Profile = Tables<"profiles">
 export type Couple = Tables<"couples">
@@ -445,5 +544,6 @@ export type Expense = Tables<"expenses">
 export type Mood = Tables<"moods">
 export type DateIdea = Tables<"date_ideas">
 export type AiSettings = Tables<"ai_settings">
+export type AiMessage = Tables<"ai_messages">
 
 export type PartnerRole = "creador" | "invitado"
