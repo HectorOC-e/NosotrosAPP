@@ -38,10 +38,15 @@ export function ComunicacionClient({
     setAiQError(null);
     setAiQPending(true);
     startTransition(async () => {
-      const r = await generateGuidingQuestion();
-      setAiQPending(false);
-      if (r.ok && r.question) setAiQuestion(r.question);
-      else setAiQError(aiReasonMessage(r.reason));
+      try {
+        const r = await generateGuidingQuestion();
+        if (r.ok && r.question) setAiQuestion(r.question);
+        else setAiQError(aiReasonMessage(r.reason));
+      } catch {
+        setAiQError(aiReasonMessage("fallo"));
+      } finally {
+        setAiQPending(false);
+      }
     });
   }
 

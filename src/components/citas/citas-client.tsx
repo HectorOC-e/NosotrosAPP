@@ -81,10 +81,15 @@ export function CitasClient({ ideas }: { ideas: IdeaView[] }) {
     setAiError(null);
     setAiGenerating(true);
     startTransition(async () => {
-      const r = await generateDateIdea({ costFilter });
-      setAiGenerating(false);
-      if (r.ok && r.idea) setAiIdea(r.idea);
-      else setAiError(aiReasonMessage(r.reason));
+      try {
+        const r = await generateDateIdea({ costFilter });
+        if (r.ok && r.idea) setAiIdea(r.idea);
+        else setAiError(aiReasonMessage(r.reason));
+      } catch {
+        setAiError(aiReasonMessage("fallo"));
+      } finally {
+        setAiGenerating(false);
+      }
     });
   }
 
@@ -92,8 +97,12 @@ export function CitasClient({ ideas }: { ideas: IdeaView[] }) {
     if (!aiIdea) return;
     const idea = aiIdea;
     startTransition(async () => {
-      await saveGeneratedIdea(idea);
-      setAiIdea(null);
+      try {
+        await saveGeneratedIdea(idea);
+        setAiIdea(null);
+      } catch {
+        setAiError(aiReasonMessage("fallo"));
+      }
     });
   }
 
