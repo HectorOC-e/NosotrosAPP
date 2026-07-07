@@ -38,3 +38,24 @@ export async function callOpenRouter(opts: {
   }
   return content.trim();
 }
+
+/**
+ * Fetches the available model slugs from OpenRouter's public models endpoint
+ * (no API key needed). Cached for 1h. Returns [] on any failure so callers can
+ * fall back to a curated list. Used to populate the Ajustes model autocomplete.
+ */
+export async function fetchOpenRouterModels(): Promise<string[]> {
+  try {
+    const res = await fetch("https://openrouter.ai/api/v1/models", {
+      next: { revalidate: 3600 },
+    });
+    if (!res.ok) return [];
+    const data = (await res.json()) as { data?: { id?: string }[] };
+    return (data.data ?? [])
+      .map((m) => m.id)
+      .filter((id): id is string => typeof id === "string" && id.length > 0)
+      .sort();
+  } catch {
+    return [];
+  }
+}

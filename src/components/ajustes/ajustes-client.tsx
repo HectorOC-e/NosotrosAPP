@@ -1,15 +1,17 @@
 "use client";
 
 import { useState, useTransition } from "react";
-import { AI_MODELS, DEFAULT_AI_MODEL } from "@/lib/constants";
+import { DEFAULT_AI_MODEL } from "@/lib/constants";
 import { saveAiConfig } from "@/lib/actions/ai";
 
 export function AjustesClient({
   initialModel,
   hasKey,
+  models,
 }: {
   initialModel: string;
   hasKey: boolean;
+  models: string[];
 }) {
   const [model, setModel] = useState(initialModel || DEFAULT_AI_MODEL);
   const [key, setKey] = useState("");
@@ -34,20 +36,23 @@ export function AjustesClient({
       <div className="eyebrow mb-3.5">MEDIADOR IA</div>
 
       <label className="mb-1.5 block text-[13px] text-ink">Modelo</label>
-      <select
-        className="field mb-4 w-full"
+      <input
+        className="field mb-1 w-full"
+        list="ai-models"
         value={model}
         onChange={(e) => setModel(e.target.value)}
-      >
-        {AI_MODELS.map((m) => (
-          <option key={m.slug} value={m.slug}>
-            {m.label}
-          </option>
+        placeholder="anthropic/claude-3.5-sonnet"
+        autoComplete="off"
+        spellCheck={false}
+      />
+      <datalist id="ai-models">
+        {models.map((m) => (
+          <option key={m} value={m} />
         ))}
-        {!AI_MODELS.some((m) => m.slug === model) && (
-          <option value={model}>{model} (personalizado)</option>
-        )}
-      </select>
+      </datalist>
+      <p className="mb-4 text-[12px] text-ink-tertiary">
+        Escribe cualquier modelo de OpenRouter o elígelo de la lista.
+      </p>
 
       <label className="mb-1.5 block text-[13px] text-ink">API key de OpenRouter</label>
       <input

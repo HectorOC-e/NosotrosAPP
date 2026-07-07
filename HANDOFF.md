@@ -208,9 +208,8 @@ Detalle completo del vertical en §9. Migraciones nuevas: `20260707_ai_messages.
 
 **Limitaciones / gaps funcionales:**
 
-3. **Mediador IA sin probar en vivo**: el vertical de IA (§9) está implementado, mergeado y desplegado,
-   pero el flujo LLM de punta a punta (guardar key real → chatear → reflexión) **nunca se ejecutó con una
-   API key real**. Además falta poner `SUPABASE_SERVICE_ROLE_KEY` en Vercel (§9). Riesgo medio.
+3. **Mediador IA**: implementado, mergeado, desplegado y **confirmado funcionando en vivo por el usuario
+   (2026-07-07)** con una API key real. (Implica que `SUPABASE_SERVICE_ROLE_KEY` ya está en Vercel.)
 4. **Ajustes solo cubre IA**: la pantalla `/ajustes` existe, pero solo configura el mediador; aún no se
    puede nombrar el espacio, cambiar nombre ni cambiar contraseña.
 5. **SMTP integrado de Supabase con rate limit bajo** — se agotó fácil durante pruebas ("Demasiados
@@ -329,15 +328,19 @@ Plan: `docs/superpowers/plans/2026-07-07-ai-mediator.md`.
   `src/lib/supabase/service.ts`, `src/lib/ai/openrouter.ts`, `src/lib/ai/prompts.ts`.
 - UI: `src/app/(app)/ajustes/page.tsx`, `src/components/ajustes/ajustes-client.tsx`,
   `src/components/comunicacion/mediator-panel.tsx` (reemplazó el teaser).
-- Config: `.env.example` (nuevo, documenta las env vars), `src/lib/constants.ts` (`AI_MODELS`,
+- Config: `.env.example` (nuevo, documenta las env vars), `src/lib/constants.ts` (`AI_MODELS` fallback,
   `DEFAULT_AI_MODEL = 'anthropic/claude-3.5-sonnet'`).
+- **Selección de modelo**: en `/ajustes` el modelo es un **campo de texto libre** con autocompletado
+  (`<datalist>`) poblado de la lista **en vivo de OpenRouter** (`fetchOpenRouterModels`, endpoint público,
+  cache 1h; fallback a `AI_MODELS` si la API no responde). Se puede escribir cualquier slug.
 
 ### Estado y qué falta
 
 - **Código**: revisado (opus, sin hallazgos Critical; 2 Important + 2 Minor arreglados), build limpio,
-  **mergeado a `main` y pusheado** (dispara redeploy en Vercel).
-- **Falta (ver §8.1)**: agregar `SUPABASE_SERVICE_ROLE_KEY` en Vercel; probar el flujo LLM en vivo con una
-  key real (nunca ejecutado end-to-end). En `.env.local` la key es un **placeholder**.
+  **mergeado a `main`, pusheado y desplegado**.
+- ✅ **Confirmado funcionando en vivo por el usuario (2026-07-07)**. `SUPABASE_SERVICE_ROLE_KEY` está en
+  Vercel; en `.env.local` local seguía siendo un **placeholder** (reemplazar solo si se quiere correr el
+  mediador en local).
 - **Minor diferidos** (no bloquean): render optimista del mensaje enviado; guard de defense-in-depth en
   `sendMediatorMessage` antes de persistir; `partnerName`→`creatorName`; quitar `pg_temp` del search_path.
   Sin streaming en v1.
