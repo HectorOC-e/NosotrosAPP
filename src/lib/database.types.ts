@@ -149,21 +149,33 @@ export type Database = {
       couples: {
         Row: {
           created_at: string
+          has_kids: boolean | null
           id: string
           invite_code: string
+          location: string | null
           name: string | null
+          together_since: string | null
+          typical_budget: number | null
         }
         Insert: {
           created_at?: string
+          has_kids?: boolean | null
           id?: string
           invite_code?: string
+          location?: string | null
           name?: string | null
+          together_since?: string | null
+          typical_budget?: number | null
         }
         Update: {
           created_at?: string
+          has_kids?: boolean | null
           id?: string
           invite_code?: string
+          location?: string | null
           name?: string | null
+          together_since?: string | null
+          typical_budget?: number | null
         }
         Relationships: []
       }
@@ -359,6 +371,7 @@ export type Database = {
       }
       profiles: {
         Row: {
+          about: string | null
           couple_id: string | null
           created_at: string
           display_name: string
@@ -366,6 +379,7 @@ export type Database = {
           partner_role: string | null
         }
         Insert: {
+          about?: string | null
           couple_id?: string | null
           created_at?: string
           display_name?: string
@@ -373,6 +387,7 @@ export type Database = {
           partner_role?: string | null
         }
         Update: {
+          about?: string | null
           couple_id?: string | null
           created_at?: string
           display_name?: string
