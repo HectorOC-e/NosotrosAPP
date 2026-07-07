@@ -14,7 +14,7 @@ export async function saveAboutUs(input: {
   const { supabase, coupleId, userId } = await requireCouple();
 
   const trimmedBudget = input.typicalBudget.trim();
-  const budget = trimmedBudget === "" ? null : Number(trimmedBudget);
+  const budget = trimmedBudget === "" ? null : Math.max(0, Number(trimmedBudget));
 
   const { error: cErr } = await supabase
     .from("couples")

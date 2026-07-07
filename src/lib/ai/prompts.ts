@@ -133,8 +133,12 @@ export function parseDateIdea(
   } catch {
     // fall through
   }
+  const cleaned = raw.trim();
   return {
-    text: raw.trim().slice(0, 200) || "Una cita especial, ustedes dos",
+    text:
+      cleaned && !cleaned.startsWith("{")
+        ? cleaned.slice(0, 200)
+        : "Una cita especial, ustedes dos",
     cost: fallbackCost,
     vibes: [],
   };
@@ -161,5 +165,12 @@ export function parseGuidingQuestion(
   } catch {
     // fall through
   }
-  return { topic: "General", question: raw.trim().slice(0, 300) };
+  const cleaned = raw.trim();
+  return {
+    topic: "General",
+    question:
+      cleaned && !cleaned.startsWith("{")
+        ? cleaned.slice(0, 300)
+        : "¿Qué es lo que más agradecen de esta semana juntos?",
+  };
 }
