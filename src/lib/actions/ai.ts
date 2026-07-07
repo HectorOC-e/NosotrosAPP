@@ -63,15 +63,16 @@ async function runMediator(
 
   let messages: ChatMessage[];
   if (kind === "chat") {
-    const { data: history } = await supabase
+    const { data: recent } = await supabase
       .from("ai_messages")
       .select("role, content")
       .eq("kind", "chat")
-      .order("created_at", { ascending: true })
+      .order("created_at", { ascending: false })
       .limit(10);
+    const history = (recent ?? []).reverse();
     messages = [
       { role: "system", content: chatSystem(moodSummary) },
-      ...(history ?? []).map((m) => ({
+      ...history.map((m) => ({
         role: m.role as "user" | "assistant",
         content: m.content,
       })),
