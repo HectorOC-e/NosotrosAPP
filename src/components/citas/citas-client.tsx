@@ -69,21 +69,18 @@ export function CitasClient({ ideas }: { ideas: IdeaView[] }) {
     });
   }
 
-  const [aiIdea, setAiIdea] = useState<{ text: string; cost: CostCat } | null>(null);
+  const [aiIdea, setAiIdea] = useState<{ text: string; cost: CostCat; vibes: string[] } | null>(null);
   const [aiGenerating, setAiGenerating] = useState(false);
   const [aiError, setAiError] = useState<string | null>(null);
-
-  const costFilter = selectedFilters.find((f) =>
-    (COST_CATS as readonly string[]).includes(f),
-  );
 
   function generateAi() {
     setAiError(null);
     setAiGenerating(true);
     startTransition(async () => {
       try {
-        const r = await generateDateIdea({ costFilter });
+        const r = await generateDateIdea({ filters: selectedFilters });
         if (r.ok && r.idea) setAiIdea(r.idea);
+        else if (r.reason === "sin-key") surprise();
         else setAiError(aiReasonMessage(r.reason));
       } catch {
         setAiError(aiReasonMessage("fallo"));
@@ -170,6 +167,11 @@ export function CitasClient({ ideas }: { ideas: IdeaView[] }) {
               <span className="rounded-full bg-violeta/15 px-2.5 py-1 text-[11px] text-violeta">
                 {aiIdea.cost}
               </span>
+              {aiIdea.vibes.map((v) => (
+                <span key={v} className="rounded-full bg-violeta/15 px-2.5 py-1 text-[11px] text-violeta">
+                  {v}
+                </span>
+              ))}
             </div>
             <div className="mb-5 font-serif text-[21px] font-medium italic leading-[1.4] text-ink">
               {aiIdea.text}
@@ -203,7 +205,7 @@ export function CitasClient({ ideas }: { ideas: IdeaView[] }) {
             </div>
             <div className="flex flex-col gap-2.5">
               <div className="flex gap-2.5">
-                <Button size="md" onClick={surprise} className="flex-1 py-[13px]">
+                <Button size="md" onClick={generateAi} disabled={pending} className="flex-1 py-[13px]">
                   Sorpréndenos
                 </Button>
                 <Button
@@ -224,15 +226,6 @@ export function CitasClient({ ideas }: { ideas: IdeaView[] }) {
               >
                 Empezar esta cita →
               </Button>
-              <Button
-                variant="ghost"
-                size="md"
-                onClick={generateAi}
-                disabled={pending}
-                className="w-full py-[13px]"
-              >
-                Sorpréndenos con IA ✨
-              </Button>
             </div>
           </>
         ) : (
@@ -241,7 +234,7 @@ export function CitasClient({ ideas }: { ideas: IdeaView[] }) {
               No hay ideas con esos filtros — agreguen una abajo 👇
             </div>
             <Button size="md" onClick={generateAi} disabled={pending} className="w-full py-[13px]">
-              Sorpréndenos con IA ✨
+              Sorpréndenos
             </Button>
           </div>
         )}
