@@ -4,6 +4,7 @@ import { useState, useTransition } from "react";
 import { EMOJIS, TOPICS } from "@/lib/constants";
 import { hexToRgba } from "@/lib/utils";
 import { setMood } from "@/lib/actions/comunicacion";
+import { MediatorPanel, type MediatorMessage } from "@/components/comunicacion/mediator-panel";
 
 type Row = {
   name: string;
@@ -12,7 +13,19 @@ type Row = {
   isMe: boolean;
 };
 
-export function ComunicacionClient({ rows }: { rows: Row[] }) {
+export function ComunicacionClient({
+  rows,
+  messages,
+  hasAiKey,
+  isCreador,
+  partnerName,
+}: {
+  rows: Row[];
+  messages: MediatorMessage[];
+  hasAiKey: boolean;
+  isCreador: boolean;
+  partnerName: string;
+}) {
   const [pending, startTransition] = useTransition();
   const [revealed, setRevealed] = useState<Record<string, boolean>>({});
 
@@ -87,33 +100,12 @@ export function ComunicacionClient({ rows }: { rows: Row[] }) {
         })}
       </div>
 
-      {/* AI mediator teaser (visual only) */}
-      <div className="relative overflow-hidden rounded-[22px] border border-violeta/25 bg-violeta/[0.07] p-5">
-        <div className="mb-3.5 flex items-center gap-2">
-          <span className="text-[18px]">✨</span>
-          <span className="font-serif text-[16px] italic text-ink">Mediador IA</span>
-          <span className="ml-auto rounded-full bg-violeta/20 px-2.5 py-1 text-[10.5px] tracking-[0.03em] text-violeta">
-            PRÓXIMAMENTE
-          </span>
-        </div>
-        <div className="mb-4 flex flex-col gap-2 opacity-[0.55]">
-          <div className="max-w-[80%] self-start rounded-[14px_14px_14px_4px] bg-white/[0.08] px-3.5 py-2.5 text-[13px] text-ink">
-            Esta semana ambos mencionaron el tema de las finanzas — ¿lo hablamos
-            con calma?
-          </div>
-          <div className="max-w-[80%] self-end rounded-[14px_14px_4px_14px] bg-rosa/15 px-3.5 py-2.5 text-[13px] text-ink">
-            Sí, buena idea 💛
-          </div>
-        </div>
-        <div className="flex flex-col gap-1.5 text-[12.5px] text-ink-secondary">
-          <span>· Sugiere frases en el momento justo</span>
-          <span>· Resume los patrones de su semana</span>
-          <span>· Eventualmente, conversa con ustedes en tiempo real</span>
-        </div>
-        <div className="mt-3.5 text-center text-[12px] text-ink-tertiary">
-          Aún no pueden escribirle — pero ya lo estamos construyendo para ustedes.
-        </div>
-      </div>
+      <MediatorPanel
+        messages={messages}
+        hasAiKey={hasAiKey}
+        isCreador={isCreador}
+        partnerName={partnerName}
+      />
     </div>
   );
 }
