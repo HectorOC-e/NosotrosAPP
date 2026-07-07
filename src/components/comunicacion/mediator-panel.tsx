@@ -133,7 +133,9 @@ export function MediatorPanel({
           placeholder="Escríbele al mediador…"
           value={text}
           onChange={(e) => setText(e.target.value)}
-          onKeyDown={(e) => e.key === "Enter" && onSend()}
+          onKeyDown={(e) => {
+            if (e.key === "Enter" && !e.nativeEvent.isComposing) onSend();
+          }}
           disabled={pending}
         />
         <button

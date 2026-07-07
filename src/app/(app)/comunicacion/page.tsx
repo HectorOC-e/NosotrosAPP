@@ -16,10 +16,12 @@ export default async function ComunicacionPage() {
     .select("profile_id, mood_emoji")
     .eq("mood_date", today);
 
-  const { data: messages } = await supabase
+  const { data: recentMessages } = await supabase
     .from("ai_messages")
     .select("id, role, kind, content")
-    .order("created_at", { ascending: true });
+    .order("created_at", { ascending: false })
+    .limit(50);
+  const messages = (recentMessages ?? []).reverse();
 
   // Readiness is visible to BOTH partners; ai_settings SELECT is creator-only,
   // so check with the service role (server-side; only a boolean leaves this scope).
@@ -45,7 +47,7 @@ export default async function ComunicacionPage() {
   return (
     <ComunicacionClient
       rows={rows}
-      messages={(messages ?? []).map((m) => ({
+      messages={messages.map((m) => ({
         id: m.id,
         role: m.role as "user" | "assistant",
         kind: m.kind as "chat" | "summary",

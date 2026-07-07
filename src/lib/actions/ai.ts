@@ -24,7 +24,7 @@ export async function saveAiConfig(input: {
     p_key: input.key,
   });
   if (error) {
-    const msg = /creador/i.test(error.message)
+    const msg = error.code === "42501"
       ? "Solo quien creó el espacio puede configurar el mediador."
       : "No pudimos guardar la configuración. Intenta de nuevo.";
     return { ok: false, error: msg };
@@ -36,11 +36,19 @@ export async function saveAiConfig(input: {
 
 type Reason = "sin-key" | "fallo";
 
-/** Shared engine: gathers context, calls the model, persists the assistant row. */
+type CoupleCtx = Awaited<ReturnType<typeof requireCouple>>;
+
+/**
+ * Shared engine: gathers context, calls the model, and persists rows ONLY after
+ * a successful reply — so a failed model call never leaves an orphaned user
+ * message in the shared, append-only thread.
+ */
 async function runMediator(
+  ctx: CoupleCtx,
   kind: "chat" | "summary",
+  userText?: string,
 ): Promise<{ ok: boolean; reason?: Reason }> {
-  const { supabase, coupleId } = await requireCouple();
+  const { supabase, coupleId, userId } = ctx;
 
   // Read provider/model/key with the service role (never exposed to client).
   const service = createServiceClient();
@@ -76,6 +84,7 @@ async function runMediator(
         role: m.role as "user" | "assistant",
         content: m.content,
       })),
+      { role: "user", content: (userText ?? "").trim() },
     ];
   } else {
     messages = [
@@ -97,6 +106,18 @@ async function runMediator(
     return { ok: false, reason: "fallo" };
   }
 
+  // Persist only after a successful reply. For chat, store the user turn first.
+  if (kind === "chat") {
+    const { error: userErr } = await supabase.from("ai_messages").insert({
+      couple_id: coupleId,
+      role: "user",
+      kind: "chat",
+      content: (userText ?? "").trim(),
+      created_by: userId,
+    });
+    if (userErr) return { ok: false, reason: "fallo" };
+  }
+
   const { error: insErr } = await supabase.from("ai_messages").insert({
     couple_id: coupleId,
     role: "assistant",
@@ -110,24 +131,14 @@ async function runMediator(
   return { ok: true };
 }
 
-/** Persists the user's message, then generates + stores the assistant reply. */
+/** Generates the assistant reply for a user message; persists both only on success. */
 export async function sendMediatorMessage(
   text: string,
 ): Promise<{ ok: boolean; reason?: Reason }> {
   const trimmed = text.trim();
   if (!trimmed) return { ok: false, reason: "fallo" };
-
-  const { supabase, coupleId, userId } = await requireCouple();
-  const { error } = await supabase.from("ai_messages").insert({
-    couple_id: coupleId,
-    role: "user",
-    kind: "chat",
-    content: trimmed,
-    created_by: userId,
-  });
-  if (error) return { ok: false, reason: "fallo" };
-
-  return runMediator("chat");
+  const ctx = await requireCouple();
+  return runMediator(ctx, "chat", trimmed);
 }
 
 /** Generates and stores a weekly reflection (assistant row, kind='summary'). */
@@ -135,5 +146,6 @@ export async function generateWeeklyReflection(): Promise<{
   ok: boolean;
   reason?: Reason;
 }> {
-  return runMediator("summary");
+  const ctx = await requireCouple();
+  return runMediator(ctx, "summary");
 }
