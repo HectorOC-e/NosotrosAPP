@@ -1,0 +1,904 @@
+# Couple Context + AI Refinement (3a) — Implementation Plan
+
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+
+**Goal:** Persist couple context (location, budget, time-together, kids, per-person "about") and inject it into every AI prompt so suggestions fit the couple; plus refine ideas (all filters + vibes), collapse to one AI "Sorpréndenos" button, and anchor questions to the 6 topics.
+
+**Architecture:** New nullable columns on `profiles`/`couples` + a couples UPDATE RLS policy. A server-only `buildCoupleContext` assembles a Spanish context block prepended to the system prompt of chat, ideas, and questions. Ajustes gains a "Sobre nosotros" section editable by both partners.
+
+**Tech Stack:** Next.js 15 App Router · TypeScript · Supabase (Postgres + RLS) · OpenRouter · pnpm 11.1.1.
+
+## Global Constraints
+
+- **pnpm 11.1.1.** Build: `pnpm build`. Local build needs `NODE_OPTIONS=--use-system-ca` (corporate proxy); PowerShell: `$env:NODE_OPTIONS='--use-system-ca'; pnpm build`.
+- **Supabase project id:** `iymibuwzwxzcpybcpkrp`. Migrations applied by the CONTROLLER via MCP `apply_migration`; commit a SQL copy under `supabase/migrations/`. Type regeneration also by the controller via MCP (preserve the convenience-alias block at the end of `database.types.ts`).
+- **Additive & safe on prod** (real users): nullable columns + one new RLS policy only.
+- **Secret handling:** the decrypted key stays inside `callCoupleAI` (unchanged); only generated text + status objects cross to the client.
+- **CostCat = "Gratis"|"Económica"|"Especial"** (`COST_CATS`); **VibeCat = "Aventura"|"Relax"|"Creativo"|"Conexión"** (`VIBE_CATS`), both from `@/lib/constants`.
+- **Copy:** Spanish es-HN, warm, non-clinical. Reuse DS classes (`.glass`, `.field`, `.btn-primary`, `.eyebrow`, `Button`), accents rosa `#FF6F91` / violeta `#8B7CFF`.
+- **Context injection** must reach: mediator chat + reflection (`runMediator`), date ideas, guiding questions.
+
+---
+
+## File Structure
+
+**Create:**
+- `supabase/migrations/20260707_couple_context.sql`
+- `src/lib/ai/context.ts` — `buildCoupleContext`.
+- `src/lib/actions/ajustes.ts` — `saveAboutUs`.
+- `src/components/ajustes/about-us-form.tsx` — the "Sobre nosotros" form.
+
+**Modify:**
+- `src/lib/database.types.ts` (regenerated).
+- `src/lib/ai/prompts.ts` — context param on 3 builders; vibes in `dateIdeaMessages`; `parseDateIdea` (+vibes); `parseGuidingQuestion`.
+- `src/lib/actions/ai.ts` — `generateDateIdea(filters)`, `generateGuidingQuestion` (+topic), `runMediator` (inject context).
+- `src/lib/actions/citas.ts` — `saveGeneratedIdea` (+vibes).
+- `src/app/(app)/ajustes/page.tsx` — two-section layout.
+- `src/components/citas/citas-client.tsx` — single AI "Sorpréndenos" + vibe tags.
+- `src/components/comunicacion/comunicacion-client.tsx` — "Sobre {tema}".
+
+---
+
+## Task 1: DB migration — context columns + couples UPDATE policy
+
+**Files:** Create `supabase/migrations/20260707_couple_context.sql`; apply via MCP (CONTROLLER).
+
+**Interfaces:** Produces `profiles.about text`, `couples.{location text, typical_budget numeric, together_since date, has_kids boolean}` (all nullable) and policy `update_own_couple`.
+
+- [ ] **Step 1: Write the migration SQL**
+
+```sql
+alter table public.profiles add column if not exists about text;
+
+alter table public.couples add column if not exists location text;
+alter table public.couples add column if not exists typical_budget numeric;
+alter table public.couples add column if not exists together_since date;
+alter table public.couples add column if not exists has_kids boolean;
+
+drop policy if exists update_own_couple on public.couples;
+create policy update_own_couple on public.couples
+  for update using (id = public.get_my_couple_id());
+```
+
+- [ ] **Step 2: Apply (controller)** — MCP `apply_migration`, name `couple_context`, project `iymibuwzwxzcpybcpkrp`.
+
+- [ ] **Step 3: Verify** — `execute_sql`:
+```sql
+select
+  (select count(*) from information_schema.columns where table_schema='public' and table_name='profiles' and column_name='about') as p_about,
+  (select count(*) from information_schema.columns where table_schema='public' and table_name='couples' and column_name in ('location','typical_budget','together_since','has_kids')) as c_cols,
+  (select count(*) from pg_policies where schemaname='public' and tablename='couples' and policyname='update_own_couple') as upd_policy;
+```
+Expected: `p_about=1`, `c_cols=4`, `upd_policy=1`.
+
+- [ ] **Step 4: Commit**
+```bash
+git add supabase/migrations/20260707_couple_context.sql
+git commit -m "feat(db): couple context columns + couples UPDATE policy"
+```
+
+---
+
+## Task 2: Context builder + prompt/parse updates
+
+**Files:** Create `src/lib/ai/context.ts`; Modify `src/lib/ai/prompts.ts`; Modify `src/lib/database.types.ts` (regenerated by controller first).
+
+**Interfaces:**
+- Produces:
+  - `buildCoupleContext(supabase, coupleId): Promise<string>` (server-only)
+  - `chatSystem(moodSummary: string, coupleContext?: string): string`
+  - `dateIdeaMessages(opts: { costFilter?: string; vibes: string[]; avoid: string[]; coupleContext?: string }): ChatMessage[]`
+  - `guidingQuestionMessages(opts: { moodSummary: string; topics: { title: string; question: string }[]; coupleContext?: string }): ChatMessage[]`
+  - `parseDateIdea(raw: string, costFilter?: string): { text: string; cost: CostCat; vibes: VibeCat[] }`
+  - `parseGuidingQuestion(raw: string, topics: string[]): { topic: string; question: string }`
+
+**Controller note:** regenerate `database.types.ts` via MCP first (adds the new columns), preserving the alias block.
+
+- [ ] **Step 1: Create `src/lib/ai/context.ts`**
+
+```ts
+import "server-only";
+import type { SupabaseServerClient } from "@/lib/supabase/types";
+
+/** Human duration like "~2 años" / "~8 meses" since an ISO date. */
+function relativeDuration(sinceIso: string): string {
+  const since = new Date(`${sinceIso}T00:00:00`);
+  const months = Math.max(
+    0,
+    Math.round((Date.now() - since.getTime()) / (30.44 * 86_400_000)),
+  );
+  if (months < 1) return "menos de un mes";
+  if (months < 12) return `~${months} ${months === 1 ? "mes" : "meses"}`;
+  const years = Math.floor(months / 12);
+  return `~${years} ${years === 1 ? "año" : "años"}`;
+}
+
+/**
+ * Builds a Spanish context block about the couple for AI prompts. Reads shared
+ * couple fields + both partners' "about". Returns "" when there is no context.
+ */
+export async function buildCoupleContext(
+  supabase: SupabaseServerClient,
+  coupleId: string,
+): Promise<string> {
+  const [{ data: couple }, { data: profiles }] = await Promise.all([
+    supabase
+      .from("couples")
+      .select("location, typical_budget, together_since, has_kids")
+      .eq("id", coupleId)
+      .maybeSingle(),
+    supabase
+      .from("profiles")
+      .select("display_name, about")
+      .eq("couple_id", coupleId),
+  ]);
+
+  const lines: string[] = [];
+  if (couple?.location?.trim())
+    lines.push(
+      `- Ubicación: ${couple.location.trim()}. Sugiere planes cercanos y realistas para esa zona.`,
+    );
+  if (couple?.typical_budget != null)
+    lines.push(`- Presupuesto típico de salida: L ${Number(couple.typical_budget)}.`);
+  if (couple?.together_since)
+    lines.push(`- Llevan juntos: ${relativeDuration(couple.together_since)}.`);
+  if (couple?.has_kids) lines.push("- Tienen hijos.");
+  for (const p of profiles ?? []) {
+    if (p.about?.trim()) lines.push(`- ${p.display_name}: ${p.about.trim()}`);
+  }
+
+  if (!lines.length) return "";
+  return `Contexto de la pareja (tenlo muy en cuenta al sugerir):\n${lines.join("\n")}`;
+}
+```
+
+- [ ] **Step 2: Update imports in `src/lib/ai/prompts.ts`**
+
+Change the constants import to include vibes:
+```ts
+import { COST_CATS, VIBE_CATS, type CostCat, type VibeCat } from "@/lib/constants";
+```
+
+- [ ] **Step 3: Replace `chatSystem` in `src/lib/ai/prompts.ts`**
+
+```ts
+/** System prompt for chat turns, enriched with couple context + the week's moods. */
+export function chatSystem(moodSummary: string, coupleContext?: string): string {
+  const ctx = coupleContext ? `\n\n${coupleContext}` : "";
+  return `${MEDIATOR_SYSTEM}${ctx}\n\nContexto reciente de la pareja (úsalo con delicadeza, no lo recites literalmente): ${moodSummary}`;
+}
+```
+
+- [ ] **Step 4: Replace `dateIdeaMessages` and add vibes to it**
+
+```ts
+/** Messages to generate ONE fresh date idea as strict JSON {cost,vibes,text}. */
+export function dateIdeaMessages(opts: {
+  costFilter?: string;
+  vibes: string[];
+  avoid: string[];
+  coupleContext?: string;
+}): ChatMessage[] {
+  const costLine = opts.costFilter ? `Categoría de costo deseada: "${opts.costFilter}".` : "";
+  const vibeLine = opts.vibes.length ? `Vibras deseadas: ${opts.vibes.join(", ")}.` : "";
+  const avoidLine = opts.avoid.length
+    ? `Evita repetir estas ideas que ya tienen:\n- ${opts.avoid.slice(0, 15).join("\n- ")}`
+    : "";
+  const ctx = opts.coupleContext ? `\n\n${opts.coupleContext}` : "";
+  return [
+    {
+      role: "system",
+      content: `${MEDIATOR_SYSTEM}\n\nGeneras ideas de cita concretas y realistas para la pareja.${ctx}`,
+    },
+    {
+      role: "user",
+      content: [
+        "Propón UNA sola idea de cita fresca, cálida y específica (una o dos frases).",
+        costLine,
+        vibeLine,
+        avoidLine,
+        `Elige "cost" entre: ${COST_CATS.join(", ")}. Elige "vibes" (una o dos) entre: ${VIBE_CATS.join(", ")}.`,
+        'Responde SOLO con JSON válido, sin texto adicional: {"cost":"...","vibes":["..."],"text":"..."}.',
+      ]
+        .filter(Boolean)
+        .join("\n"),
+    },
+  ];
+}
+```
+
+- [ ] **Step 5: Replace `guidingQuestionMessages`**
+
+```ts
+/** Messages to generate ONE guiding question tied to the couple's topics. */
+export function guidingQuestionMessages(opts: {
+  moodSummary: string;
+  topics: { title: string; question: string }[];
+  coupleContext?: string;
+}): ChatMessage[] {
+  const ctx = opts.coupleContext ? `\n\n${opts.coupleContext}` : "";
+  const topicList = opts.topics.map((t) => `- ${t.title}: ${t.question}`).join("\n");
+  return [
+    { role: "system", content: `${MEDIATOR_SYSTEM}${ctx}` },
+    {
+      role: "user",
+      content: [
+        "Estos son los temas de conversación de la pareja:",
+        topicList,
+        `Ánimo reciente (úsalo con delicadeza): ${opts.moodSummary}`,
+        "Elige el tema más pertinente según su ánimo y propón UNA pregunta guía fresca, suave y abierta para ese tema (es-HN, sin tono clínico).",
+        'Responde SOLO con JSON: {"topic":"<el título exacto del tema, o General>","question":"..."}.',
+      ].join("\n"),
+    },
+  ];
+}
+```
+
+- [ ] **Step 6: Replace `parseDateIdea` (now returns vibes) and add `parseGuidingQuestion`**
+
+```ts
+/** Defensively parses the model's JSON date idea; never throws. */
+export function parseDateIdea(
+  raw: string,
+  costFilter?: string,
+): { text: string; cost: CostCat; vibes: VibeCat[] } {
+  const isCost = (v: unknown): v is CostCat =>
+    typeof v === "string" && (COST_CATS as readonly string[]).includes(v);
+  const isVibe = (v: unknown): v is VibeCat =>
+    typeof v === "string" && (VIBE_CATS as readonly string[]).includes(v);
+  const fallbackCost: CostCat = isCost(costFilter) ? costFilter : "Económica";
+  try {
+    const match = raw.match(/\{[\s\S]*\}/);
+    if (match) {
+      const obj = JSON.parse(match[0]) as {
+        text?: unknown;
+        cost?: unknown;
+        vibes?: unknown;
+      };
+      const text = typeof obj.text === "string" ? obj.text.trim() : "";
+      if (text) {
+        const vibes = Array.isArray(obj.vibes) ? obj.vibes.filter(isVibe) : [];
+        return { text, cost: isCost(obj.cost) ? obj.cost : fallbackCost, vibes };
+      }
+    }
+  } catch {
+    // fall through
+  }
+  return {
+    text: raw.trim().slice(0, 200) || "Una cita especial, ustedes dos",
+    cost: fallbackCost,
+    vibes: [],
+  };
+}
+
+/** Defensively parses {topic,question}; topic falls back to "General". Never throws. */
+export function parseGuidingQuestion(
+  raw: string,
+  topics: string[],
+): { topic: string; question: string } {
+  try {
+    const match = raw.match(/\{[\s\S]*\}/);
+    if (match) {
+      const obj = JSON.parse(match[0]) as { topic?: unknown; question?: unknown };
+      const question = typeof obj.question === "string" ? obj.question.trim() : "";
+      if (question) {
+        const topic =
+          typeof obj.topic === "string" && topics.includes(obj.topic)
+            ? obj.topic
+            : "General";
+        return { topic, question };
+      }
+    }
+  } catch {
+    // fall through
+  }
+  return { topic: "General", question: raw.trim().slice(0, 300) };
+}
+```
+
+- [ ] **Step 7: Unit-test the parsers + context omission (Node script, replicate bodies)**
+
+Create `…/scratchpad/context-parse.mjs` asserting:
+```
+parseDateIdea('{"cost":"Gratis","vibes":["Relax","Nope"],"text":"Picnic"}') // {cost:"Gratis", vibes:["Relax"], text:"Picnic"}  (invalid vibe dropped)
+parseDateIdea('no json', 'Especial') // {text:"no json", cost:"Especial", vibes:[]}
+parseGuidingQuestion('{"topic":"Finanzas","question":"¿Qué nos tranquiliza con el dinero?"}', ["Finanzas","Familia"]) // topic "Finanzas"
+parseGuidingQuestion('{"topic":"Otro","question":"¿Cómo estuvo su semana?"}', ["Finanzas"]) // topic "General"
+// buildCoupleContext line logic: empty inputs => "" ; with location => block contains "Ubicación:"
+```
+Run `node …/scratchpad/context-parse.mjs` → all print `OK`.
+
+- [ ] **Step 8: Build** — `pnpm build` exit 0, tsc clean.
+
+- [ ] **Step 9: Commit**
+```bash
+git add src/lib/ai/context.ts src/lib/ai/prompts.ts src/lib/database.types.ts
+git commit -m "feat(ai): buildCoupleContext + context-aware prompts, vibes + topic parsing"
+```
+
+---
+
+## Task 3: Server actions (AI + save + saveAboutUs)
+
+**Files:** Modify `src/lib/actions/ai.ts`, `src/lib/actions/citas.ts`; Create `src/lib/actions/ajustes.ts`.
+
+**Interfaces:**
+- Consumes: `buildCoupleContext`, updated prompt builders/parsers, `COST_CATS`/`VIBE_CATS`, `TOPICS`.
+- Produces:
+  - `generateDateIdea(input: { filters: string[] }): Promise<{ ok; idea?: { text: string; cost: CostCat; vibes: VibeCat[] }; reason? }>`
+  - `generateGuidingQuestion(): Promise<{ ok; question?: string; topic?: string; reason? }>`
+  - `saveGeneratedIdea(input: { text: string; cost: CostCat; vibes: string[] }): Promise<void>`
+  - `saveAboutUs(input: { location: string; typicalBudget: string; togetherSince: string; hasKids: boolean; about: string }): Promise<{ ok: boolean }>`
+
+- [ ] **Step 1: `src/lib/actions/ai.ts` — imports**
+
+Extend the prompts import to add `parseGuidingQuestion` and `buildCoupleContext` import; extend constants import with vibe/cost arrays:
+```ts
+import {
+  chatSystem,
+  reflectionUserPrompt,
+  summarizeMoods,
+  dateIdeaMessages,
+  guidingQuestionMessages,
+  parseDateIdea,
+  parseGuidingQuestion,
+} from "@/lib/ai/prompts";
+import { buildCoupleContext } from "@/lib/ai/context";
+import {
+  TOPICS,
+  DEFAULT_AI_MODEL,
+  COST_CATS,
+  VIBE_CATS,
+  type CostCat,
+  type VibeCat,
+} from "@/lib/constants";
+```
+
+- [ ] **Step 2: Inject context in `runMediator`**
+
+In `runMediator`, after `const moodSummary = summarizeMoods(moods ?? []);`, add:
+```ts
+  const coupleContext = await buildCoupleContext(supabase, coupleId);
+```
+Then change BOTH `chatSystem(moodSummary)` calls (chat branch and summary branch) to `chatSystem(moodSummary, coupleContext)`.
+
+- [ ] **Step 3: Replace `generateDateIdea`**
+
+```ts
+/** Generates one fresh AI date idea from all active filters + couple context. */
+export async function generateDateIdea(input: {
+  filters: string[];
+}): Promise<{
+  ok: boolean;
+  idea?: { text: string; cost: CostCat; vibes: VibeCat[] };
+  reason?: Reason;
+}> {
+  const { supabase, coupleId } = await requireCouple();
+  const costFilter = input.filters.find((f) =>
+    (COST_CATS as readonly string[]).includes(f),
+  );
+  const vibes = input.filters.filter((f) =>
+    (VIBE_CATS as readonly string[]).includes(f),
+  );
+  const { data: existing } = await supabase.from("date_ideas").select("text").limit(15);
+  const avoid = (existing ?? []).map((r) => r.text);
+  const coupleContext = await buildCoupleContext(supabase, coupleId);
+  const res = await callCoupleAI(
+    coupleId,
+    dateIdeaMessages({ costFilter, vibes, avoid, coupleContext }),
+  );
+  if (!res.ok || !res.text) return { ok: false, reason: res.reason ?? "fallo" };
+  return { ok: true, idea: parseDateIdea(res.text, costFilter) };
+}
+```
+
+- [ ] **Step 4: Replace `generateGuidingQuestion`**
+
+```ts
+/** Generates one guiding question tied to the couple's topics + moods + context. */
+export async function generateGuidingQuestion(): Promise<{
+  ok: boolean;
+  question?: string;
+  topic?: string;
+  reason?: Reason;
+}> {
+  const { supabase, coupleId } = await requireCouple();
+  const since = toInputDate(new Date(Date.now() - 7 * 86_400_000));
+  const { data: moods } = await supabase
+    .from("moods")
+    .select("mood_emoji, mood_date")
+    .gte("mood_date", since);
+  const moodSummary = summarizeMoods(moods ?? []);
+  const coupleContext = await buildCoupleContext(supabase, coupleId);
+  const res = await callCoupleAI(
+    coupleId,
+    guidingQuestionMessages({
+      moodSummary,
+      topics: TOPICS.map((t) => ({ title: t.title, question: t.question })),
+      coupleContext,
+    }),
+  );
+  if (!res.ok || !res.text) return { ok: false, reason: res.reason ?? "fallo" };
+  const parsed = parseGuidingQuestion(
+    res.text,
+    TOPICS.map((t) => t.title),
+  );
+  return { ok: true, question: parsed.question, topic: parsed.topic };
+}
+```
+
+- [ ] **Step 5: `src/lib/actions/citas.ts` — `saveGeneratedIdea` accepts vibes**
+
+Replace the existing `saveGeneratedIdea` with:
+```ts
+/** Persists an AI-generated idea to the couple's favorites (with its vibes). */
+export async function saveGeneratedIdea(input: {
+  text: string;
+  cost: CostCat;
+  vibes: string[];
+}): Promise<void> {
+  const { supabase, coupleId, userId } = await requireCouple();
+  const text = input.text.trim();
+  if (!text) return;
+  const { error } = await supabase.from("date_ideas").insert({
+    couple_id: coupleId,
+    created_by: userId,
+    text,
+    cost: input.cost,
+    vibe: input.vibes.length ? input.vibes.join(",") : null,
+    is_favorite: true,
+  });
+  if (error) throw error;
+  revalidatePath("/citas");
+}
+```
+
+- [ ] **Step 6: Create `src/lib/actions/ajustes.ts`**
+
+```ts
+"use server";
+
+import { revalidatePath } from "next/cache";
+import { requireCouple } from "@/lib/actions/context";
+
+/** Saves shared couple context (couples) + the caller's own "about" (profiles). */
+export async function saveAboutUs(input: {
+  location: string;
+  typicalBudget: string;
+  togetherSince: string;
+  hasKids: boolean;
+  about: string;
+}): Promise<{ ok: boolean }> {
+  const { supabase, coupleId, userId } = await requireCouple();
+
+  const trimmedBudget = input.typicalBudget.trim();
+  const budget = trimmedBudget === "" ? null : Number(trimmedBudget);
+
+  const { error: cErr } = await supabase
+    .from("couples")
+    .update({
+      location: input.location.trim() || null,
+      typical_budget: budget != null && Number.isFinite(budget) ? budget : null,
+      together_since: input.togetherSince || null,
+      has_kids: input.hasKids,
+    })
+    .eq("id", coupleId);
+  if (cErr) return { ok: false };
+
+  const { error: pErr } = await supabase
+    .from("profiles")
+    .update({ about: input.about.trim() || null })
+    .eq("id", userId);
+  if (pErr) return { ok: false };
+
+  revalidatePath("/ajustes");
+  revalidatePath("/inicio");
+  revalidatePath("/citas");
+  revalidatePath("/comunicacion");
+  return { ok: true };
+}
+```
+
+- [ ] **Step 7: Build** — `pnpm build` exit 0, tsc clean.
+
+- [ ] **Step 8: Commit**
+```bash
+git add src/lib/actions/ai.ts src/lib/actions/citas.ts src/lib/actions/ajustes.ts
+git commit -m "feat(ai): context-aware actions, vibes save, saveAboutUs"
+```
+
+---
+
+## Task 4: Ajustes reorg — "Sobre nosotros" form (both partners)
+
+**Files:** Create `src/components/ajustes/about-us-form.tsx`; Modify `src/app/(app)/ajustes/page.tsx`.
+
+**Interfaces:** Consumes `saveAboutUs` (Task 3), `getSessionContext`, `derivePartners`.
+
+- [ ] **Step 1: Create `src/components/ajustes/about-us-form.tsx`**
+
+```tsx
+"use client";
+
+import { useState, useTransition } from "react";
+import { saveAboutUs } from "@/lib/actions/ajustes";
+
+export function AboutUsForm({
+  initialLocation,
+  initialBudget,
+  initialTogetherSince,
+  initialHasKids,
+  initialAbout,
+  partnerName,
+  partnerAbout,
+}: {
+  initialLocation: string;
+  initialBudget: string;
+  initialTogetherSince: string;
+  initialHasKids: boolean;
+  initialAbout: string;
+  partnerName: string;
+  partnerAbout: string;
+}) {
+  const [location, setLocation] = useState(initialLocation);
+  const [budget, setBudget] = useState(initialBudget);
+  const [togetherSince, setTogetherSince] = useState(initialTogetherSince);
+  const [hasKids, setHasKids] = useState(initialHasKids);
+  const [about, setAbout] = useState(initialAbout);
+  const [pending, startTransition] = useTransition();
+  const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
+
+  function onSave() {
+    setMsg(null);
+    startTransition(async () => {
+      const res = await saveAboutUs({
+        location,
+        typicalBudget: budget,
+        togetherSince,
+        hasKids,
+        about,
+      });
+      setMsg(
+        res.ok
+          ? { ok: true, text: "Guardado ✨ La IA los conocerá mejor." }
+          : { ok: false, text: "No pudimos guardar. Intenta de nuevo." },
+      );
+    });
+  }
+
+  return (
+    <div className="glass mb-4 rounded-[22px] px-5 py-[18px]">
+      <div className="eyebrow mb-3.5">SOBRE NOSOTROS</div>
+      <p className="mb-4 text-[12.5px] leading-[1.5] text-ink-tertiary">
+        Esto ayuda a la IA a sugerir planes cercanos y afines a ustedes.
+      </p>
+
+      <label className="mb-1.5 block text-[13px] text-ink">Ubicación</label>
+      <input
+        className="field mb-4 w-full"
+        placeholder="Ej. Marcala, La Paz, Honduras"
+        value={location}
+        onChange={(e) => setLocation(e.target.value)}
+      />
+
+      <label className="mb-1.5 block text-[13px] text-ink">Presupuesto típico de salida (L)</label>
+      <input
+        className="field mb-4 w-full"
+        inputMode="numeric"
+        placeholder="Ej. 300"
+        value={budget}
+        onChange={(e) => setBudget(e.target.value)}
+      />
+
+      <label className="mb-1.5 block text-[13px] text-ink">¿Desde cuándo están juntos?</label>
+      <input
+        type="date"
+        className="field mb-4 w-full"
+        value={togetherSince}
+        onChange={(e) => setTogetherSince(e.target.value)}
+      />
+
+      <label className="mb-4 flex items-center gap-2.5 text-[13px] text-ink">
+        <input
+          type="checkbox"
+          checked={hasKids}
+          onChange={(e) => setHasKids(e.target.checked)}
+        />
+        Tenemos hijos
+      </label>
+
+      <label className="mb-1.5 block text-[13px] text-ink">Sobre ti</label>
+      <textarea
+        className="field mb-4 min-h-[72px] w-full"
+        placeholder="Tus gustos, intereses, algo que la IA debería saber…"
+        value={about}
+        onChange={(e) => setAbout(e.target.value)}
+      />
+
+      {partnerAbout.trim() && (
+        <div className="mb-4">
+          <div className="mb-1.5 text-[13px] text-ink">Sobre {partnerName}</div>
+          <p className="glass-subtle rounded-[14px] p-3 text-[13px] text-ink-secondary">
+            {partnerAbout}
+          </p>
+        </div>
+      )}
+
+      <button onClick={onSave} disabled={pending} className="btn-primary w-full disabled:opacity-60">
+        {pending ? "Guardando…" : "Guardar"}
+      </button>
+      {msg && (
+        <div className="mt-3 text-[13px]" style={{ color: msg.ok ? "#3ED6B5" : "#FF6B6B" }}>
+          {msg.text}
+        </div>
+      )}
+    </div>
+  );
+}
+```
+
+- [ ] **Step 2: Replace `src/app/(app)/ajustes/page.tsx`**
+
+```tsx
+import { createClient } from "@/lib/supabase/server";
+import { getSessionContext } from "@/lib/queries";
+import { derivePartners } from "@/lib/partners";
+import { AI_MODELS } from "@/lib/constants";
+import { fetchOpenRouterModels } from "@/lib/ai/openrouter";
+import { AjustesClient } from "@/components/ajustes/ajustes-client";
+import { AboutUsForm } from "@/components/ajustes/about-us-form";
+
+export default async function AjustesPage() {
+  const ctx = await getSessionContext();
+  const { personA } = derivePartners(ctx!); // A = creador
+  const isCreador = ctx?.profile?.partner_role === "creador";
+
+  const couple = ctx?.couple;
+  const myAbout = ctx?.profile?.about ?? "";
+  const partner = ctx?.partner;
+
+  const aboutForm = (
+    <AboutUsForm
+      initialLocation={couple?.location ?? ""}
+      initialBudget={couple?.typical_budget != null ? String(couple.typical_budget) : ""}
+      initialTogetherSince={couple?.together_since ?? ""}
+      initialHasKids={!!couple?.has_kids}
+      initialAbout={myAbout}
+      partnerName={partner?.display_name ?? "tu pareja"}
+      partnerAbout={partner?.about ?? ""}
+    />
+  );
+
+  if (!isCreador) {
+    return (
+      <>
+        {aboutForm}
+        <div className="glass rounded-[22px] px-5 py-[18px]">
+          <div className="eyebrow mb-2.5">MEDIADOR IA</div>
+          <p className="text-[13.5px] leading-[1.5] text-ink-secondary">
+            Solo {personA.name} puede configurar el mediador ✨.
+          </p>
+        </div>
+      </>
+    );
+  }
+
+  const supabase = await createClient();
+  const { data } = await supabase
+    .from("ai_settings")
+    .select("model, api_key_secret_id")
+    .maybeSingle();
+  const fetched = await fetchOpenRouterModels();
+  const models = fetched.length ? fetched : AI_MODELS.map((m) => m.slug);
+
+  return (
+    <>
+      {aboutForm}
+      <AjustesClient
+        initialModel={data?.model ?? ""}
+        hasKey={!!data?.api_key_secret_id}
+        models={models}
+      />
+    </>
+  );
+}
+```
+(Note: `getSessionContext` selects `profiles.*` and `couples.*`, so `about`/`location`/etc. are present after Task 2's type regen.)
+
+- [ ] **Step 3: Build** — `pnpm build` exit 0, tsc clean, `/ajustes` present.
+
+- [ ] **Step 4: Commit**
+```bash
+git add src/components/ajustes/about-us-form.tsx "src/app/(app)/ajustes/page.tsx"
+git commit -m "feat(ajustes): Sobre nosotros context form for both partners"
+```
+
+---
+
+## Task 5: Citas — single AI "Sorpréndenos" + vibe tags
+
+**Files:** Modify `src/components/citas/citas-client.tsx`.
+
+**Interfaces:** Consumes `generateDateIdea({ filters })` → idea has `vibes`; `saveGeneratedIdea({ text, cost, vibes })`.
+
+- [ ] **Step 1: Update the AI state type + handlers**
+
+Change the `aiIdea` state type to include vibes:
+```ts
+  const [aiIdea, setAiIdea] = useState<{ text: string; cost: CostCat; vibes: string[] } | null>(null);
+```
+Replace `generateAi` (pass ALL filters; fall back to the pool on sin-key):
+```ts
+  function generateAi() {
+    setAiError(null);
+    setAiGenerating(true);
+    startTransition(async () => {
+      try {
+        const r = await generateDateIdea({ filters: selectedFilters });
+        if (r.ok && r.idea) setAiIdea(r.idea);
+        else if (r.reason === "sin-key") surprise();
+        else setAiError(aiReasonMessage(r.reason));
+      } catch {
+        setAiError(aiReasonMessage("fallo"));
+      } finally {
+        setAiGenerating(false);
+      }
+    });
+  }
+```
+Replace `saveAi` to pass vibes (keep its try/catch):
+```ts
+  function saveAi() {
+    if (!aiIdea) return;
+    const idea = aiIdea;
+    startTransition(async () => {
+      try {
+        await saveGeneratedIdea(idea);
+        setAiIdea(null);
+      } catch {
+        setAiError(aiReasonMessage("fallo"));
+      }
+    });
+  }
+```
+Delete the now-unused `costFilter` const (the `selectedFilters.find(...)` line) if present.
+
+- [ ] **Step 2: Show vibe tags on the AI idea + collapse to one button**
+
+In the AI-idea view, replace the badge row to also render vibe tags:
+```tsx
+            <div className="mb-3.5 flex flex-wrap items-center gap-1.5">
+              <span className="rounded-full bg-violeta/20 px-2.5 py-1 text-[11px] text-violeta">
+                ✨ Sugerencia de IA · sin guardar
+              </span>
+              <span className="rounded-full bg-violeta/15 px-2.5 py-1 text-[11px] text-violeta">
+                {aiIdea.cost}
+              </span>
+              {aiIdea.vibes.map((v) => (
+                <span key={v} className="rounded-full bg-violeta/15 px-2.5 py-1 text-[11px] text-violeta">
+                  {v}
+                </span>
+              ))}
+            </div>
+```
+In the pool-idea view button area, change the first button to call `generateAi` and REMOVE the separate "Sorpréndenos con IA ✨" button:
+```tsx
+            <div className="flex flex-col gap-2.5">
+              <div className="flex gap-2.5">
+                <Button size="md" onClick={generateAi} disabled={pending} className="flex-1 py-[13px]">
+                  Sorpréndenos
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="md"
+                  onClick={toggleFavorite}
+                  disabled={pending}
+                  className="px-4 py-[13px]"
+                >
+                  {displayIdea.isFavorite ? "Guardada ✓" : "Guardar como favorita"}
+                </Button>
+              </div>
+              <Button
+                size="md"
+                onClick={() => beginDate(displayIdea.id)}
+                disabled={pending}
+                className="w-full py-[13px]"
+              >
+                Empezar esta cita →
+              </Button>
+            </div>
+```
+In the empty-state, the existing "Sorpréndenos con IA ✨" button already calls `generateAi` — change its label to `Sorpréndenos`:
+```tsx
+            <Button size="md" onClick={generateAi} disabled={pending} className="w-full py-[13px]">
+              Sorpréndenos
+            </Button>
+```
+
+- [ ] **Step 3: Build** — `pnpm build` exit 0, tsc clean.
+
+- [ ] **Step 4: Commit**
+```bash
+git add src/components/citas/citas-client.tsx
+git commit -m "feat(citas): one AI Sorpréndenos (pool fallback) + vibe tags"
+```
+
+---
+
+## Task 6: Comunicación — show "Sobre {tema}"
+
+**Files:** Modify `src/components/comunicacion/comunicacion-client.tsx`.
+
+**Interfaces:** Consumes `generateGuidingQuestion()` → now returns `topic`.
+
+- [ ] **Step 1: Track the topic**
+
+Add state next to `aiQuestion`:
+```ts
+  const [aiTopic, setAiTopic] = useState<string | null>(null);
+```
+In `newQuestion`, set it on success:
+```ts
+      try {
+        const r = await generateGuidingQuestion();
+        if (r.ok && r.question) {
+          setAiQuestion(r.question);
+          setAiTopic(r.topic ?? null);
+        } else setAiQError(aiReasonMessage(r.reason));
+      } catch {
+        setAiQError(aiReasonMessage("fallo"));
+      } finally {
+        setAiQPending(false);
+      }
+```
+
+- [ ] **Step 2: Render the topic label above the question**
+
+In the AI question block, where the question renders, prepend the topic:
+```tsx
+        ) : aiQuestion ? (
+          <>
+            {aiTopic && (
+              <div className="mb-1 text-[11px] tracking-[0.03em] text-violeta">
+                Sobre {aiTopic}
+              </div>
+            )}
+            <span className="font-serif text-[14px] italic leading-[1.4] text-ink-secondary">
+              {aiQuestion}
+            </span>
+          </>
+        ) : (
+```
+
+- [ ] **Step 3: Build** — `pnpm build` exit 0, tsc clean.
+
+- [ ] **Step 4: Commit**
+```bash
+git add src/components/comunicacion/comunicacion-client.tsx
+git commit -m "feat(comunicacion): show the topic a guiding question belongs to"
+```
+
+---
+
+## Task 7: Verification
+
+**Files:** none committed.
+
+- [ ] **Step 1:** Re-run the Task 2 parser script → all `OK`.
+- [ ] **Step 2:** `pnpm build` exit 0, tsc clean, 14 routes.
+- [ ] **Step 3: SQL** (controller): set context for a seeded/real couple and confirm persistence:
+```sql
+select location, typical_budget, together_since, has_kids from public.couples where id = '<couple_id>';
+select display_name, about from public.profiles where couple_id = '<couple_id>';
+```
+Confirm the new `update_own_couple` policy lets a member update (Task 1 verified the policy exists).
+- [ ] **Step 4: Live smoke (real key, manual):** In Ajustes set Ubicación "Marcala, La Paz, Honduras" + a budget + your "about" → Guardar. In Citas, "Sorpréndenos" returns an idea near Marcala with vibe tags; "♡ Guardar" persists it (favorites, `vibe` set). In Comunicación, "Nueva pregunta ✨" shows "Sobre {tema}" + a question. With no key, "Sorpréndenos" falls back to the pool.
+
+---
+
+## Self-Review notes (author)
+
+- **Spec coverage:** schema+RLS (Task 1), context builder + context-aware prompts + vibes/topic parsing (Task 2), context-injected actions incl. `runMediator` + `saveAboutUs` (Task 3), Ajustes "Sobre nosotros" for both (Task 4), single AI button + vibe tags (Task 5), "Sobre {tema}" (Task 6), verification (Task 7).
+- **Type consistency:** `generateDateIdea({ filters })` → `idea: { text; cost: CostCat; vibes: VibeCat[] }`; `saveGeneratedIdea({ text; cost; vibes: string[] })`; `generateGuidingQuestion` → `{ question?; topic? }`; `buildCoupleContext(supabase, coupleId)`.
+- **Out of scope (later deliveries):** 3b date history, 3c streaming; editing partner's about.
+- **Note for final review:** `parseDateIdea`/`parseGuidingQuestion` fallbacks never yield invalid `CostCat`/`VibeCat`/topic; `runMediator` change is limited to building + passing `coupleContext`.

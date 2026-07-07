@@ -60,10 +60,11 @@ export async function startDate(dateIdeaId: string): Promise<{ ok: boolean }> {
   return { ok: true };
 }
 
-/** Persists an AI-generated idea to the couple's favorites. */
+/** Persists an AI-generated idea to the couple's favorites (with its vibes). */
 export async function saveGeneratedIdea(input: {
   text: string;
   cost: CostCat;
+  vibes: string[];
 }): Promise<void> {
   const { supabase, coupleId, userId } = await requireCouple();
   const text = input.text.trim();
@@ -73,7 +74,7 @@ export async function saveGeneratedIdea(input: {
     created_by: userId,
     text,
     cost: input.cost,
-    vibe: null,
+    vibe: input.vibes.length ? input.vibes.join(",") : null,
     is_favorite: true,
   });
   if (error) throw error;

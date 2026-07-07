@@ -31,6 +31,7 @@ export function ComunicacionClient({
   const [pending, startTransition] = useTransition();
   const [revealed, setRevealed] = useState<Record<string, boolean>>({});
   const [aiQuestion, setAiQuestion] = useState<string | null>(null);
+  const [aiTopic, setAiTopic] = useState<string | null>(null);
   const [aiQPending, setAiQPending] = useState(false);
   const [aiQError, setAiQError] = useState<string | null>(null);
 
@@ -40,8 +41,10 @@ export function ComunicacionClient({
     startTransition(async () => {
       try {
         const r = await generateGuidingQuestion();
-        if (r.ok && r.question) setAiQuestion(r.question);
-        else setAiQError(aiReasonMessage(r.reason));
+        if (r.ok && r.question) {
+          setAiQuestion(r.question);
+          setAiTopic(r.topic ?? null);
+        } else setAiQError(aiReasonMessage(r.reason));
       } catch {
         setAiQError(aiReasonMessage("fallo"));
       } finally {
@@ -138,9 +141,16 @@ export function ComunicacionClient({
         {aiQPending ? (
           <span className="text-[12px] text-ink-tertiary">Pensando… ✨</span>
         ) : aiQuestion ? (
-          <span className="font-serif text-[14px] italic leading-[1.4] text-ink-secondary">
-            {aiQuestion}
-          </span>
+          <>
+            {aiTopic && (
+              <div className="mb-1 text-[11px] tracking-[0.03em] text-violeta">
+                Sobre {aiTopic}
+              </div>
+            )}
+            <span className="font-serif text-[14px] italic leading-[1.4] text-ink-secondary">
+              {aiQuestion}
+            </span>
+          </>
         ) : (
           <span className="text-[12px] text-ink-tertiary">
             Toca para que la IA les proponga una pregunta.

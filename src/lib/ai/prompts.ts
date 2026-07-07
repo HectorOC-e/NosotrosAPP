@@ -1,6 +1,6 @@
 import "server-only";
 import type { ChatMessage } from "@/lib/ai/openrouter";
-import { COST_CATS, type CostCat } from "@/lib/constants";
+import { COST_CATS, VIBE_CATS, type CostCat, type VibeCat } from "@/lib/constants";
 
 const EMOJI_WORD: Record<string, string> = {
   "😞": "muy bajo",
@@ -33,9 +33,10 @@ export const MEDIATOR_SYSTEM = [
   "Respuestas breves (máx 4 frases), sin listas largas, sin juzgar a ninguno de los dos.",
 ].join(" ");
 
-/** System prompt for chat turns, enriched with the week's mood context. */
-export function chatSystem(moodSummary: string): string {
-  return `${MEDIATOR_SYSTEM}\n\nContexto reciente (úsalo con delicadeza, no lo recites literalmente): ${moodSummary}`;
+/** System prompt for chat turns, enriched with couple context + the week's moods. */
+export function chatSystem(moodSummary: string, coupleContext?: string): string {
+  const ctx = coupleContext ? `\n\n${coupleContext}` : "";
+  return `${MEDIATOR_SYSTEM}${ctx}\n\nContexto reciente de la pareja (úsalo con delicadeza, no lo recites literalmente): ${moodSummary}`;
 }
 
 /** Synthetic user instruction that produces the weekly reflection. */
@@ -48,29 +49,33 @@ export function reflectionUserPrompt(moodSummary: string, topics: string[]): str
   ].join(" ");
 }
 
-/** Messages to generate ONE fresh date idea as strict JSON {cost,text}. */
+/** Messages to generate ONE fresh date idea as strict JSON {cost,vibes,text}. */
 export function dateIdeaMessages(opts: {
   costFilter?: string;
+  vibes: string[];
   avoid: string[];
+  coupleContext?: string;
 }): ChatMessage[] {
-  const costLine = opts.costFilter
-    ? `La idea debe ser de categoría de costo "${opts.costFilter}".`
-    : "";
+  const costLine = opts.costFilter ? `Categoría de costo deseada: "${opts.costFilter}".` : "";
+  const vibeLine = opts.vibes.length ? `Vibras deseadas: ${opts.vibes.join(", ")}.` : "";
   const avoidLine = opts.avoid.length
     ? `Evita repetir estas ideas que ya tienen:\n- ${opts.avoid.slice(0, 15).join("\n- ")}`
     : "";
+  const ctx = opts.coupleContext ? `\n\n${opts.coupleContext}` : "";
   return [
     {
       role: "system",
-      content: `${MEDIATOR_SYSTEM}\n\nGeneras ideas de cita concretas y realistas para una pareja en Honduras.`,
+      content: `${MEDIATOR_SYSTEM}\n\nGeneras ideas de cita concretas y realistas para la pareja.${ctx}`,
     },
     {
       role: "user",
       content: [
         "Propón UNA sola idea de cita fresca, cálida y específica (una o dos frases).",
         costLine,
+        vibeLine,
         avoidLine,
-        'Responde SOLO con JSON válido, sin texto adicional, con esta forma exacta: {"cost":"Gratis|Económica|Especial","text":"..."}.',
+        `Elige "cost" entre: ${COST_CATS.join(", ")}. Elige "vibes" (una o dos) entre: ${VIBE_CATS.join(", ")}.`,
+        'Responde SOLO con JSON válido, sin texto adicional: {"cost":"...","vibes":["..."],"text":"..."}.',
       ]
         .filter(Boolean)
         .join("\n"),
@@ -78,19 +83,24 @@ export function dateIdeaMessages(opts: {
   ];
 }
 
-/** Messages to generate ONE gentle guiding question (plain text). */
+/** Messages to generate ONE guiding question tied to the couple's topics. */
 export function guidingQuestionMessages(opts: {
   moodSummary: string;
+  topics: { title: string; question: string }[];
+  coupleContext?: string;
 }): ChatMessage[] {
+  const ctx = opts.coupleContext ? `\n\n${opts.coupleContext}` : "";
+  const topicList = opts.topics.map((t) => `- ${t.title}: ${t.question}`).join("\n");
   return [
-    { role: "system", content: MEDIATOR_SYSTEM },
+    { role: "system", content: `${MEDIATOR_SYSTEM}${ctx}` },
     {
       role: "user",
       content: [
-        "Propón UNA sola pregunta guía, suave y abierta, para que la pareja converse con calma.",
-        "En español (es-HN), cálida, sin tono clínico ni de terapia.",
-        `Contexto (úsalo con delicadeza, no lo menciones literalmente): ${opts.moodSummary}`,
-        "Responde SOLO con la pregunta, sin comillas ni texto adicional.",
+        "Estos son los temas de conversación de la pareja:",
+        topicList,
+        `Ánimo reciente (úsalo con delicadeza): ${opts.moodSummary}`,
+        "Elige el tema más pertinente según su ánimo y propón UNA pregunta guía fresca, suave y abierta para ese tema (es-HN, sin tono clínico).",
+        'Responde SOLO con JSON: {"topic":"<el título exacto del tema, o General>","question":"..."}.',
       ].join("\n"),
     },
   ];
@@ -100,20 +110,67 @@ export function guidingQuestionMessages(opts: {
 export function parseDateIdea(
   raw: string,
   costFilter?: string,
-): { text: string; cost: CostCat } {
+): { text: string; cost: CostCat; vibes: VibeCat[] } {
   const isCost = (v: unknown): v is CostCat =>
     typeof v === "string" && (COST_CATS as readonly string[]).includes(v);
+  const isVibe = (v: unknown): v is VibeCat =>
+    typeof v === "string" && (VIBE_CATS as readonly string[]).includes(v);
   const fallbackCost: CostCat = isCost(costFilter) ? costFilter : "Económica";
   try {
     const match = raw.match(/\{[\s\S]*\}/);
     if (match) {
-      const obj = JSON.parse(match[0]) as { text?: unknown; cost?: unknown };
+      const obj = JSON.parse(match[0]) as {
+        text?: unknown;
+        cost?: unknown;
+        vibes?: unknown;
+      };
       const text = typeof obj.text === "string" ? obj.text.trim() : "";
-      if (text) return { text, cost: isCost(obj.cost) ? obj.cost : fallbackCost };
+      if (text) {
+        const vibes = Array.isArray(obj.vibes) ? obj.vibes.filter(isVibe) : [];
+        return { text, cost: isCost(obj.cost) ? obj.cost : fallbackCost, vibes };
+      }
     }
   } catch {
-    // fall through to raw-text fallback
+    // fall through
   }
-  const text = raw.trim().slice(0, 200) || "Una cita especial, ustedes dos";
-  return { text, cost: fallbackCost };
+  const cleaned = raw.trim();
+  return {
+    text:
+      cleaned && !cleaned.startsWith("{")
+        ? cleaned.slice(0, 200)
+        : "Una cita especial, ustedes dos",
+    cost: fallbackCost,
+    vibes: [],
+  };
+}
+
+/** Defensively parses {topic,question}; topic falls back to "General". Never throws. */
+export function parseGuidingQuestion(
+  raw: string,
+  topics: string[],
+): { topic: string; question: string } {
+  try {
+    const match = raw.match(/\{[\s\S]*\}/);
+    if (match) {
+      const obj = JSON.parse(match[0]) as { topic?: unknown; question?: unknown };
+      const question = typeof obj.question === "string" ? obj.question.trim() : "";
+      if (question) {
+        const topic =
+          typeof obj.topic === "string" && topics.includes(obj.topic)
+            ? obj.topic
+            : "General";
+        return { topic, question };
+      }
+    }
+  } catch {
+    // fall through
+  }
+  const cleaned = raw.trim();
+  return {
+    topic: "General",
+    question:
+      cleaned && !cleaned.startsWith("{")
+        ? cleaned.slice(0, 300)
+        : "¿Qué es lo que más agradecen de esta semana juntos?",
+  };
 }

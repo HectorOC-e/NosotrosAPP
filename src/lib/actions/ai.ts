@@ -15,8 +15,17 @@ import {
   dateIdeaMessages,
   guidingQuestionMessages,
   parseDateIdea,
+  parseGuidingQuestion,
 } from "@/lib/ai/prompts";
-import { TOPICS, DEFAULT_AI_MODEL, type CostCat } from "@/lib/constants";
+import { buildCoupleContext } from "@/lib/ai/context";
+import {
+  TOPICS,
+  DEFAULT_AI_MODEL,
+  COST_CATS,
+  VIBE_CATS,
+  type CostCat,
+  type VibeCat,
+} from "@/lib/constants";
 import { toInputDate } from "@/lib/format";
 
 /** Creator saves provider/model/key. Errors surface as a warm string. */
@@ -75,6 +84,7 @@ async function runMediator(
     .select("mood_emoji, mood_date")
     .gte("mood_date", since);
   const moodSummary = summarizeMoods(moods ?? []);
+  const coupleContext = await buildCoupleContext(supabase, coupleId);
 
   let messages: ChatMessage[];
   if (kind === "chat") {
@@ -86,7 +96,7 @@ async function runMediator(
       .limit(10);
     const history = (recent ?? []).reverse();
     messages = [
-      { role: "system", content: chatSystem(moodSummary) },
+      { role: "system", content: chatSystem(moodSummary, coupleContext) },
       ...history.map((m) => ({
         role: m.role as "user" | "assistant",
         content: m.content,
@@ -95,7 +105,7 @@ async function runMediator(
     ];
   } else {
     messages = [
-      { role: "system", content: chatSystem(moodSummary) },
+      { role: "system", content: chatSystem(moodSummary, coupleContext) },
       {
         role: "user",
         content: reflectionUserPrompt(
@@ -190,28 +200,37 @@ async function callCoupleAI(
   }
 }
 
-/** Generates one fresh AI date idea, respecting the cost filter and avoiding existing ideas. */
+/** Generates one fresh AI date idea from all active filters + couple context. */
 export async function generateDateIdea(input: {
-  costFilter?: string;
-}): Promise<{ ok: boolean; idea?: { text: string; cost: CostCat }; reason?: Reason }> {
+  filters: string[];
+}): Promise<{
+  ok: boolean;
+  idea?: { text: string; cost: CostCat; vibes: VibeCat[] };
+  reason?: Reason;
+}> {
   const { supabase, coupleId } = await requireCouple();
-  const { data: existing } = await supabase
-    .from("date_ideas")
-    .select("text")
-    .limit(15);
+  const costFilter = input.filters.find((f) =>
+    (COST_CATS as readonly string[]).includes(f),
+  );
+  const vibes = input.filters.filter((f) =>
+    (VIBE_CATS as readonly string[]).includes(f),
+  );
+  const { data: existing } = await supabase.from("date_ideas").select("text").limit(15);
   const avoid = (existing ?? []).map((r) => r.text);
+  const coupleContext = await buildCoupleContext(supabase, coupleId);
   const res = await callCoupleAI(
     coupleId,
-    dateIdeaMessages({ costFilter: input.costFilter, avoid }),
+    dateIdeaMessages({ costFilter, vibes, avoid, coupleContext }),
   );
   if (!res.ok || !res.text) return { ok: false, reason: res.reason ?? "fallo" };
-  return { ok: true, idea: parseDateIdea(res.text, input.costFilter) };
+  return { ok: true, idea: parseDateIdea(res.text, costFilter) };
 }
 
-/** Generates one fresh guiding question, informed by the week's moods. Ephemeral. */
+/** Generates one guiding question tied to the couple's topics + moods + context. */
 export async function generateGuidingQuestion(): Promise<{
   ok: boolean;
   question?: string;
+  topic?: string;
   reason?: Reason;
 }> {
   const { supabase, coupleId } = await requireCouple();
@@ -221,7 +240,19 @@ export async function generateGuidingQuestion(): Promise<{
     .select("mood_emoji, mood_date")
     .gte("mood_date", since);
   const moodSummary = summarizeMoods(moods ?? []);
-  const res = await callCoupleAI(coupleId, guidingQuestionMessages({ moodSummary }));
+  const coupleContext = await buildCoupleContext(supabase, coupleId);
+  const res = await callCoupleAI(
+    coupleId,
+    guidingQuestionMessages({
+      moodSummary,
+      topics: TOPICS.map((t) => ({ title: t.title, question: t.question })),
+      coupleContext,
+    }),
+  );
   if (!res.ok || !res.text) return { ok: false, reason: res.reason ?? "fallo" };
-  return { ok: true, question: res.text };
+  const parsed = parseGuidingQuestion(
+    res.text,
+    TOPICS.map((t) => t.title),
+  );
+  return { ok: true, question: parsed.question, topic: parsed.topic };
 }
