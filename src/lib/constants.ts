@@ -145,3 +145,13 @@ export function budgetColor(pct: number): string {
   if (pct >= 70) return "#FFB84D";
   return "#3ED6B5";
 }
+
+/** Curated OpenRouter models offered in Ajustes (creator may also type a custom slug). */
+export const AI_MODELS = [
+  { slug: "anthropic/claude-3.5-sonnet", label: "Claude 3.5 Sonnet (recomendado)" },
+  { slug: "anthropic/claude-3.5-haiku", label: "Claude 3.5 Haiku (más rápido/barato)" },
+  { slug: "openai/gpt-4o-mini", label: "GPT-4o mini" },
+] as const;
+
+/** Default model when the couple hasn't picked one. */
+export const DEFAULT_AI_MODEL = "anthropic/claude-3.5-sonnet";
