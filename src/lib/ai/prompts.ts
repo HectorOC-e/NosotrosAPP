@@ -1,4 +1,6 @@
 import "server-only";
+import type { ChatMessage } from "@/lib/ai/openrouter";
+import { COST_CATS, type CostCat } from "@/lib/constants";
 
 const EMOJI_WORD: Record<string, string> = {
   "😞": "muy bajo",
@@ -44,4 +46,74 @@ export function reflectionUserPrompt(moodSummary: string, topics: string[]): str
     `Datos: ${moodSummary}`,
     `Temas guía disponibles: ${topics.join(", ")}.`,
   ].join(" ");
+}
+
+/** Messages to generate ONE fresh date idea as strict JSON {cost,text}. */
+export function dateIdeaMessages(opts: {
+  costFilter?: string;
+  avoid: string[];
+}): ChatMessage[] {
+  const costLine = opts.costFilter
+    ? `La idea debe ser de categoría de costo "${opts.costFilter}".`
+    : "";
+  const avoidLine = opts.avoid.length
+    ? `Evita repetir estas ideas que ya tienen:\n- ${opts.avoid.slice(0, 15).join("\n- ")}`
+    : "";
+  return [
+    {
+      role: "system",
+      content: `${MEDIATOR_SYSTEM}\n\nGeneras ideas de cita concretas y realistas para una pareja en Honduras.`,
+    },
+    {
+      role: "user",
+      content: [
+        "Propón UNA sola idea de cita fresca, cálida y específica (una o dos frases).",
+        costLine,
+        avoidLine,
+        'Responde SOLO con JSON válido, sin texto adicional, con esta forma exacta: {"cost":"Gratis|Económica|Especial","text":"..."}.',
+      ]
+        .filter(Boolean)
+        .join("\n"),
+    },
+  ];
+}
+
+/** Messages to generate ONE gentle guiding question (plain text). */
+export function guidingQuestionMessages(opts: {
+  moodSummary: string;
+}): ChatMessage[] {
+  return [
+    { role: "system", content: MEDIATOR_SYSTEM },
+    {
+      role: "user",
+      content: [
+        "Propón UNA sola pregunta guía, suave y abierta, para que la pareja converse con calma.",
+        "En español (es-HN), cálida, sin tono clínico ni de terapia.",
+        `Contexto (úsalo con delicadeza, no lo menciones literalmente): ${opts.moodSummary}`,
+        "Responde SOLO con la pregunta, sin comillas ni texto adicional.",
+      ].join("\n"),
+    },
+  ];
+}
+
+/** Defensively parses the model's JSON date idea; never throws. */
+export function parseDateIdea(
+  raw: string,
+  costFilter?: string,
+): { text: string; cost: CostCat } {
+  const isCost = (v: unknown): v is CostCat =>
+    typeof v === "string" && (COST_CATS as readonly string[]).includes(v);
+  const fallbackCost: CostCat = isCost(costFilter) ? costFilter : "Económica";
+  try {
+    const match = raw.match(/\{[\s\S]*\}/);
+    if (match) {
+      const obj = JSON.parse(match[0]) as { text?: unknown; cost?: unknown };
+      const text = typeof obj.text === "string" ? obj.text.trim() : "";
+      if (text) return { text, cost: isCost(obj.cost) ? obj.cost : fallbackCost };
+    }
+  } catch {
+    // fall through to raw-text fallback
+  }
+  const text = raw.trim().slice(0, 200) || "Una cita especial, ustedes dos";
+  return { text, cost: fallbackCost };
 }
