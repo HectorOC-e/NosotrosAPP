@@ -1,4 +1,5 @@
 import { createClient } from "@/lib/supabase/server";
+import { createServiceClient } from "@/lib/supabase/service";
 import { getSessionContext } from "@/lib/queries";
 import { derivePartners } from "@/lib/partners";
 import { toInputDate } from "@/lib/format";
@@ -15,23 +16,44 @@ export default async function ComunicacionPage() {
     .select("profile_id, mood_emoji")
     .eq("mood_date", today);
 
+  const { data: messages } = await supabase
+    .from("ai_messages")
+    .select("id, role, kind, content")
+    .order("created_at", { ascending: true });
+
+  // Readiness is visible to BOTH partners; ai_settings SELECT is creator-only,
+  // so check with the service role (server-side; only a boolean leaves this scope).
+  const service = createServiceClient();
+  const { data: cfg } = await service
+    .from("ai_settings")
+    .select("api_key_secret_id")
+    .eq("couple_id", ctx!.couple!.id)
+    .maybeSingle();
+  const hasAiKey = !!cfg?.api_key_secret_id;
+
   const emojiFor = (id: string | null) =>
     moods?.find((m) => m.profile_id === id)?.mood_emoji ?? null;
 
   const rows = [
-    {
-      name: personA.name,
-      accent: personA.accent,
-      emoji: emojiFor(personA.id),
-      isMe: meSlot === "A",
-    },
-    {
-      name: personB.name,
-      accent: personB.accent,
-      emoji: emojiFor(personB.id),
-      isMe: meSlot === "B",
-    },
+    { name: personA.name, accent: personA.accent, emoji: emojiFor(personA.id), isMe: meSlot === "A" },
+    { name: personB.name, accent: personB.accent, emoji: emojiFor(personB.id), isMe: meSlot === "B" },
   ];
 
-  return <ComunicacionClient rows={rows} />;
+  const isCreador = ctx!.profile?.partner_role === "creador";
+  const partnerName = personA.name; // A = creador; invitee is told to ask the creator
+
+  return (
+    <ComunicacionClient
+      rows={rows}
+      messages={(messages ?? []).map((m) => ({
+        id: m.id,
+        role: m.role as "user" | "assistant",
+        kind: m.kind as "chat" | "summary",
+        content: m.content,
+      }))}
+      hasAiKey={hasAiKey}
+      isCreador={isCreador}
+      partnerName={partnerName}
+    />
+  );
 }
