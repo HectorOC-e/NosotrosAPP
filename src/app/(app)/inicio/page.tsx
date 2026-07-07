@@ -45,6 +45,17 @@ export default async function InicioPage() {
   const pct = limit > 0 ? (spent / limit) * 100 : 0;
   const barColor = budgetColor(pct);
 
+  let citaIdeaText: string | null = null;
+  if (budget?.date_idea_id) {
+    const { data: citaIdea } = await supabase
+      .from("date_ideas")
+      .select("text")
+      .eq("id", budget.date_idea_id)
+      .maybeSingle();
+    citaIdeaText = citaIdea?.text ?? null;
+  }
+  const isCita = !!budget?.date_idea_id;
+
   // ── Check-in de hoy ──
   const today = new Date().toISOString().slice(0, 10);
   const { data: moods } = await supabase
@@ -82,10 +93,10 @@ export default async function InicioPage() {
           )}
         </div>
 
-        {/* Presupuesto activo */}
+        {/* Salida / cita activa */}
         <div className="glass rounded-[22px] px-5 py-[18px]">
           <div className="mb-2.5 flex items-baseline justify-between">
-            <div className="eyebrow">PRESUPUESTO ACTIVO</div>
+            <div className="eyebrow">{isCita ? "CITA ACTUAL" : "PRESUPUESTO ACTIVO"}</div>
             {budget && (
               <div className="tnum text-[12.5px]" style={{ color: barColor }}>
                 {Math.round(pct)}%
@@ -94,7 +105,13 @@ export default async function InicioPage() {
           </div>
           {budget ? (
             <>
-              <div className="mb-2.5 text-[15.5px] text-ink">{budget.label}</div>
+              <div className="mb-1 text-[15.5px] text-ink">{budget.label}</div>
+              {isCita && citaIdeaText && (
+                <div className="mb-2.5 text-[12px] leading-[1.4] text-ink-tertiary">
+                  {citaIdeaText}
+                </div>
+              )}
+              {!isCita && <div className="mb-2.5" />}
               <div className="mb-2 h-2 overflow-hidden rounded-full bg-white/[0.08]">
                 <div
                   className="h-full rounded-full"
@@ -107,7 +124,7 @@ export default async function InicioPage() {
             </>
           ) : (
             <div className="text-[14.5px] text-ink-secondary">
-              Aún no tienen una salida activa — defínanla en Gastos.
+              Aún no tienen una salida activa — empiecen una cita o defínanla en Gastos.
             </div>
           )}
         </div>

@@ -57,3 +57,13 @@ export function initialOf(name: string | null | undefined): string {
   const trimmed = (name ?? "").trim();
   return trimmed ? trimmed.charAt(0).toUpperCase() : "·";
 }
+
+/** Short, editable outing name derived from a long date-idea sentence (≤32 chars). */
+export function shortDateName(text: string): string {
+  const t = text.trim().replace(/[.…]+$/, "");
+  if (t.length <= 32) return t;
+  const cut = t.slice(0, 32);
+  const lastSpace = cut.lastIndexOf(" ");
+  const base = (lastSpace > 0 ? cut.slice(0, lastSpace) : cut).replace(/[.,;:]+$/, "");
+  return `${base}…`;
+}

@@ -1,6 +1,7 @@
 "use client";
 
 import { useMemo, useState, useTransition } from "react";
+import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import {
   FILTER_CATS,
@@ -8,7 +9,7 @@ import {
   COST_COLOR,
   type CostCat,
 } from "@/lib/constants";
-import { addIdea, setFavorite } from "@/lib/actions/citas";
+import { addIdea, setFavorite, startDate } from "@/lib/actions/citas";
 
 export type IdeaView = {
   id: string;
@@ -19,6 +20,7 @@ export type IdeaView = {
 
 export function CitasClient({ ideas }: { ideas: IdeaView[] }) {
   const [pending, startTransition] = useTransition();
+  const router = useRouter();
   const [selectedFilters, setSelectedFilters] = useState<string[]>([]);
   const [currentId, setCurrentId] = useState<string | null>(ideas[0]?.id ?? null);
   const [newIdeaText, setNewIdeaText] = useState("");
@@ -56,6 +58,13 @@ export function CitasClient({ ideas }: { ideas: IdeaView[] }) {
     if (!displayIdea) return;
     const target = displayIdea;
     startTransition(() => setFavorite(target.id, !target.isFavorite));
+  }
+
+  function beginDate(id: string) {
+    startTransition(async () => {
+      const r = await startDate(id);
+      if (r.ok) router.push("/gastos");
+    });
   }
 
   function submitIdea(e: React.FormEvent) {
@@ -119,18 +128,28 @@ export function CitasClient({ ideas }: { ideas: IdeaView[] }) {
             <div className="mb-5 font-serif text-[21px] font-medium italic leading-[1.4] text-ink">
               {displayIdea.text}
             </div>
-            <div className="flex gap-2.5">
-              <Button size="md" onClick={surprise} className="flex-1 py-[13px]">
-                Sorpréndenos
-              </Button>
+            <div className="flex flex-col gap-2.5">
+              <div className="flex gap-2.5">
+                <Button size="md" onClick={surprise} className="flex-1 py-[13px]">
+                  Sorpréndenos
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="md"
+                  onClick={toggleFavorite}
+                  disabled={pending}
+                  className="px-4 py-[13px]"
+                >
+                  {displayIdea.isFavorite ? "Guardada ✓" : "Guardar como favorita"}
+                </Button>
+              </div>
               <Button
-                variant="ghost"
                 size="md"
-                onClick={toggleFavorite}
+                onClick={() => beginDate(displayIdea.id)}
                 disabled={pending}
-                className="px-4 py-[13px]"
+                className="w-full py-[13px]"
               >
-                {displayIdea.isFavorite ? "Guardada ✓" : "Guardar como favorita"}
+                Empezar esta cita →
               </Button>
             </div>
           </>
@@ -152,6 +171,13 @@ export function CitasClient({ ideas }: { ideas: IdeaView[] }) {
                 className="glass-subtle flex items-center gap-2.5 rounded-2xl px-3.5 py-3"
               >
                 <span className="flex-1 text-[14px] text-ink">{fav.text}</span>
+                <button
+                  onClick={() => beginDate(fav.id)}
+                  disabled={pending}
+                  className="p-1 text-[13px] text-rosa transition hover:brightness-110"
+                >
+                  Empezar
+                </button>
                 <button
                   onClick={() => startTransition(() => setFavorite(fav.id, false))}
                   disabled={pending}
