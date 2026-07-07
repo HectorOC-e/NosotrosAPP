@@ -1,6 +1,6 @@
 # 📋 Reporte de estado — "Nosotros"
 
-**Fecha:** 2026-07-06 · **Rama:** `main` · **Commit:** `0f85376` · **Repo:** `github.com/HectorOC-e/NosotrosAPP`
+**Fecha:** 2026-07-07 · **Rama:** `main` · **Commit:** `a2f797a` · **Repo:** `github.com/HectorOC-e/NosotrosAPP`
 **Stack:** Next.js 15.5.20 (App Router) · TypeScript · Tailwind + tokens del DS · Supabase SSR · pnpm 11.1.1
 
 > Documento de handoff para otra sesión que continuará el trabajo. Objetivo: entender dónde
@@ -21,7 +21,8 @@
 | **Citas** (`/citas`) | ✅ Real | Chips de filtro con **fill activo real** (rosa), idea central, "Sorpréndenos", favoritas, agregar idea. |
 | **Calendario** (`/calendario`) | ✅ Real | Próximos 7 días, lista de pendientes con checkbox, agregar pendiente. |
 | **Gastos** (`/gastos`) | ✅ Real | Presupuesto, banner cálido de sobregiro, lista de gastos, definir salida, registrar gasto. |
-| **Comunicación** (`/comunicacion`) | ✅ Real (check-in + temas) / 🟡 Mock (mediador IA) | Check-ins y temas guía funcionan; el mediador IA es **solo visual**. |
+| **Comunicación** (`/comunicacion`) | ✅ Real (check-in + temas + **mediador IA**) | Check-ins, temas guía y **mediador IA real** (chat compartido + reflexión semanal). Ver §9. |
+| **Ajustes** (`/ajustes`) | ✅ Real (creador) | Config del mediador: modelo + API key de OpenRouter → Vault. Engranaje en el header. Ver §9. |
 | **Cerrar sesión** | ✅ Real | Icono en el header en todas las pantallas. |
 
 Todas las **Server Actions persisten en la BD real** (verificado: agregar idea, mood, toggle
@@ -29,9 +30,9 @@ pendiente, gastos, crear/unir pareja, login, logout). Cero errores de consola or
 
 ### Parcial / mock / placeholder (explícito)
 
-- **Mediador IA** (Comunicación): **100% simulado**, por diseño. Teaser "PRÓXIMAMENTE" con burbujas de
-  chat falsas atenuadas. No hay ninguna llamada a un LLM. *(Coincide con el diseño — no es omisión,
-  pero no está conectado a nada real.)*
+- **Mediador IA** (Comunicación): ✅ **REAL** desde 2026-07-07 (ver §9). Chat compartido + reflexión
+  semanal, con la API key del creador guardada en Supabase Vault. *(El código está mergeado y desplegado;
+  el flujo LLM de punta a punta con una key real aún no se ejecutó en vivo — ver §9.)*
 - **`couples.name`**: siempre queda `null`. No hay UI para nombrar el espacio (el diseño no lo pedía).
 - **Ideas agregadas por el usuario**: se guardan bien, pero solo reaparecen dentro del pool aleatorio
   de "Sorpréndenos" — no hay lista de "todas las ideas" (esto replica el prototipo).
@@ -148,20 +149,25 @@ Las 8 tablas existen **sin cambios de columnas**: `couples`, `profiles`, `events
 | `NEXT_PUBLIC_SUPABASE_URL` | `.env.local` (local) | Falta ponerla en Vercel. |
 | `NEXT_PUBLIC_SUPABASE_ANON_KEY` | `.env.local` (local) | Publishable key (`sb_publishable_…`), pública por diseño. Falta en Vercel. |
 | `NEXT_PUBLIC_SITE_URL` | comentada en `.env.local` | Opcional; fija el origin del redirect de confirmación. Recomendada en Vercel. |
+| `SUPABASE_SERVICE_ROLE_KEY` | `.env.local` (local) | **NUEVA (mediador IA).** Server-only, **nunca** `NEXT_PUBLIC_`. Local tiene un **placeholder** — poner el valor real. **Falta agregarla en Vercel** o el mediador no funciona (la app degrada al gate, no rompe). Ver §9. |
 | `NODE_OPTIONS=--use-system-ca` | entorno local | Necesaria por proxy corporativo TLS (ver §7). No aplica en Vercel. |
 
 **No existe `.env.example`** (recomendado agregarlo). `.env.local` está en `.gitignore`.
 
 ### Supabase Vault para la clave de IA
 
-**PENDIENTE — no implementado en absoluto.** La tabla `ai_settings` tiene `api_key_secret_id uuid`
-(referencia a un secreto de Vault) y RLS solo-creador, pero:
+✅ **IMPLEMENTADO (2026-07-07).** La tabla `ai_settings` (`api_key_secret_id uuid`, RLS solo-creador) ya
+se usa de verdad:
 
-- **No hay UI** para configurar provider/model/API key (no existe pantalla de Ajustes).
-- **No hay Server Action** que escriba en `ai_settings` ni que guarde secretos en Vault.
-- **No se tocó Vault** en ningún punto.
+- **UI:** pantalla `/ajustes` (solo creador) para elegir modelo y pegar la API key de OpenRouter.
+- **Server Action + RPC:** `saveAiConfig` → `set_ai_config` (SECURITY DEFINER, solo-creador) guarda la
+  key en **Vault** (`vault.create_secret`/`update_secret`) y referencia `ai_settings.api_key_secret_id`.
+- **Lectura segura:** RPC `get_couple_ai_key` (SECURITY DEFINER) con `EXECUTE` **revocado a
+  `authenticated`/`anon`** y concedido solo a `service_role`; se llama únicamente desde el server de Next
+  con un cliente service-role. La key en claro **nunca** llega al navegador.
 
-Es un vertical completo sin empezar.
+Detalle completo del vertical en §9. Migraciones nuevas: `20260707_ai_messages.sql`,
+`20260707_ai_functions.sql` (aplicadas a prod).
 
 ---
 
@@ -202,9 +208,11 @@ Es un vertical completo sin empezar.
 
 **Limitaciones / gaps funcionales:**
 
-3. **Vault + IA**: vertical completo sin implementar (§4).
-4. **Sin UI de Ajustes**: no se puede nombrar el espacio, cambiar nombre, cambiar contraseña, ni
-   gestionar `ai_settings`.
+3. **Mediador IA sin probar en vivo**: el vertical de IA (§9) está implementado, mergeado y desplegado,
+   pero el flujo LLM de punta a punta (guardar key real → chatear → reflexión) **nunca se ejecutó con una
+   API key real**. Además falta poner `SUPABASE_SERVICE_ROLE_KEY` en Vercel (§9). Riesgo medio.
+4. **Ajustes solo cubre IA**: la pantalla `/ajustes` existe, pero solo configura el mediador; aún no se
+   puede nombrar el espacio, cambiar nombre ni cambiar contraseña.
 5. **SMTP integrado de Supabase con rate limit bajo** — se agotó fácil durante pruebas ("Demasiados
    intentos"). Para uso real se necesita **SMTP propio** (SendGrid/Resend). No configurado.
 6. **`couples.name` nunca se setea** (siempre null).
@@ -264,17 +272,72 @@ confirmado vía SQL admin e inyectar la sesión (formato cookie `@supabase/ssr`:
 
 En orden de prioridad:
 
-1. **Cerrar el loop de despliegue + probar el correo real** (bloqueante para uso real): importar en
-   Vercel, configurar Redirect URLs en Supabase, y hacer **una prueba real de crear→confirmar→entrar**
-   con una bandeja. Es el único flujo sin verificar de punta a punta y el más frágil.
+1. **Activar el mediador IA en producción** *(bloqueante para que la nueva funcionalidad sirva)*:
+   a. En **Vercel** → Project Settings → Environment Variables: agregar `SUPABASE_SERVICE_ROLE_KEY`
+      (valor real de Supabase → Project Settings → API → `service_role`; server-only, sin `NEXT_PUBLIC_`)
+      y redeploy. **Sin esto el mediador no funciona** (la app degrada al gate, no rompe).
+   b. **Probar el flujo en vivo**: como creador, `/ajustes` → pegar una API key de OpenRouter → guardar;
+      luego `/comunicacion` → chatear con el mediador y probar "Reflexión de la semana"; verificar en el
+      segundo dispositivo que el invitado ve el **hilo compartido**. (Gasta un poco en OpenRouter.)
+   c. Opcional: bumpear `DEFAULT_AI_MODEL` (`src/lib/constants.ts`) al slug de Claude más nuevo en
+      OpenRouter si se prefiere.
 2. **Configurar SMTP propio en Supabase** — el correo integrado no aguanta uso real (rate limit). Sin
    esto, el onboarding falla intermitentemente para usuarios reales.
-3. **Implementar el vertical de IA (Vault + Ajustes)** — el mayor bloque sin empezar. Necesita: pantalla
-   de Ajustes (solo creador), Server Action que guarde la API key en **Supabase Vault** y referencie
-   `ai_settings.api_key_secret_id`, y luego conectar el mediador de verdad (reemplazar el teaser).
-4. **Realtime** (si se quiere la sensación "compartido en vivo"): suscripciones de Supabase a
-   `moods`/`events`/`expenses` para reflejar cambios del otro sin refrescar.
-5. **Pulido menor**: `.env.example`, UI para nombrar el espacio, confirmación suave en cerrar sesión.
+3. **Realtime** (si se quiere la sensación "compartido en vivo"): suscripciones de Supabase a
+   `moods`/`events`/`expenses`/**`ai_messages`** para reflejar cambios del otro sin refrescar (hoy el
+   hilo del mediador se actualiza por `revalidatePath`, no en vivo).
+4. **Pulido menor**: UI para nombrar el espacio, confirmación suave en cerrar sesión, y los Minor
+   diferidos de la revisión de código (§9): render optimista del mensaje enviado, defense-in-depth en
+   `sendMediatorMessage`, renombrar `partnerName`→`creatorName`.
 
-Recomendación: atacar **1 y 2 juntos primero** (desbloquean el producto), luego **3** (la funcionalidad
-diferenciadora que el diseño promete).
+Recomendación: **1 primero** (desbloquea la funcionalidad recién construida y ya desplegada), luego **2**.
+
+---
+
+## 9. VERTICAL DE IA — MEDIADOR (implementado 2026-07-07)
+
+Era el "item 3" pendiente. Construido con el flujo spec → plan → subagentes → revisión (opus) → merge.
+Spec: `docs/superpowers/specs/2026-07-07-ai-mediator-vault-design.md`.
+Plan: `docs/superpowers/plans/2026-07-07-ai-mediator.md`.
+
+### Qué hace
+
+- **BYOK por pareja.** El **creador** entra su propia API key de **OpenRouter** en `/ajustes`; se guarda
+  cifrada en **Supabase Vault**. Cada pareja paga su propio uso.
+- **Chat compartido y persistente** (tabla `ai_messages`, RLS couple-scoped, append-only): ambos ven el
+  mismo hilo con el mediador; se actualiza por `revalidatePath` (no realtime).
+- **Reflexión semanal**: botón que resume los ánimos/temas de la semana como una fila
+  `role='assistant', kind='summary'` en el mismo hilo.
+- **Gate por estado/rol**: sin key → creador ve "Actívalo en Ajustes", invitado ve "Pídele a {creador}…".
+
+### Seguridad (cómo la key nunca llega al cliente)
+
+- `ai_settings` sigue siendo **RLS solo-creador**. La key vive en Vault.
+- Escritura: `set_ai_config(provider, model, key)` — `SECURITY DEFINER`, exige `partner_role='creador'`
+  adentro; ejecutable por `authenticated`.
+- Lectura: `get_couple_ai_key(couple_id)` — `SECURITY DEFINER`, **`EXECUTE` revocado a
+  `authenticated`/`anon`, concedido solo a `service_role`**. Se llama **solo** desde el server de Next con
+  un cliente service-role (`src/lib/supabase/service.ts`, `server-only`). Solo el texto del asistente
+  cruza al cliente. Verificado: `has_function_privilege('authenticated', …)` = `false`.
+- Requiere `SUPABASE_SERVICE_ROLE_KEY` (server-only). Si falta en un entorno, `/comunicacion` **degrada
+  al gate** (no rompe) — hardening en `comunicacion/page.tsx`.
+
+### Archivos clave (nuevos)
+
+- SQL: `supabase/migrations/20260707_ai_messages.sql`, `20260707_ai_functions.sql`.
+- Server: `src/lib/actions/ai.ts` (`saveAiConfig`, `sendMediatorMessage`, `generateWeeklyReflection`),
+  `src/lib/supabase/service.ts`, `src/lib/ai/openrouter.ts`, `src/lib/ai/prompts.ts`.
+- UI: `src/app/(app)/ajustes/page.tsx`, `src/components/ajustes/ajustes-client.tsx`,
+  `src/components/comunicacion/mediator-panel.tsx` (reemplazó el teaser).
+- Config: `.env.example` (nuevo, documenta las env vars), `src/lib/constants.ts` (`AI_MODELS`,
+  `DEFAULT_AI_MODEL = 'anthropic/claude-3.5-sonnet'`).
+
+### Estado y qué falta
+
+- **Código**: revisado (opus, sin hallazgos Critical; 2 Important + 2 Minor arreglados), build limpio,
+  **mergeado a `main` y pusheado** (dispara redeploy en Vercel).
+- **Falta (ver §8.1)**: agregar `SUPABASE_SERVICE_ROLE_KEY` en Vercel; probar el flujo LLM en vivo con una
+  key real (nunca ejecutado end-to-end). En `.env.local` la key es un **placeholder**.
+- **Minor diferidos** (no bloquean): render optimista del mensaje enviado; guard de defense-in-depth en
+  `sendMediatorMessage` antes de persistir; `partnerName`→`creatorName`; quitar `pg_temp` del search_path.
+  Sin streaming en v1.
