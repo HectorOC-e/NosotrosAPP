@@ -4,6 +4,8 @@ import { revalidatePath } from "next/cache";
 import { requireCouple } from "@/lib/actions/context";
 import { shortDateName } from "@/lib/format";
 import type { CostCat } from "@/lib/constants";
+import { getActiveBudgetId } from "@/lib/queries";
+import type { SupabaseServerClient } from "@/lib/supabase/types";
 
 export async function addIdea(input: { text: string; cost: CostCat }) {
   const { supabase, coupleId, userId } = await requireCouple();
@@ -77,6 +79,56 @@ export async function saveGeneratedIdea(input: {
     vibe: input.vibes.length ? input.vibes.join(",") : null,
     is_favorite: true,
   });
+  if (error) throw error;
+  revalidatePath("/citas");
+}
+
+/**
+ * Guards the two history mutations below. Returns true only when the budget is a
+ * past date the couple may edit: it exists and is visible under RLS, it is a cita
+ * (`date_idea_id` set), and it is not the active outing. The UI never offers the
+ * active outing, but Server Actions are client-invocable endpoints, so the server
+ * checks too. Callers no-op on false — these states are unreachable from the UI
+ * and a thrown error would tell the user nothing useful.
+ */
+async function isEditablePastDate(
+  supabase: SupabaseServerClient,
+  budgetId: string,
+): Promise<boolean> {
+  const { data: budget } = await supabase
+    .from("budgets")
+    .select("id, date_idea_id")
+    .eq("id", budgetId)
+    .maybeSingle();
+  if (!budget?.date_idea_id) return false;
+  return budget.id !== (await getActiveBudgetId(supabase));
+}
+
+/** Renames a past outing. The spend shown next to it is derived, not editable. */
+export async function renameOuting(budgetId: string, label: string): Promise<void> {
+  const { supabase } = await requireCouple();
+  const next = label.trim().slice(0, 60);
+  if (!next) return;
+  if (!(await isEditablePastDate(supabase, budgetId))) return;
+
+  const { error } = await supabase
+    .from("budgets")
+    .update({ label: next })
+    .eq("id", budgetId);
+  if (error) throw error;
+  revalidatePath("/citas");
+}
+
+/**
+ * Deletes a past outing. Its expenses go with it: the FK
+ * `expenses.budget_id -> budgets.id` is ON DELETE CASCADE, so Postgres removes the
+ * child rows. Irreversible; the UI confirms with a two-tap before calling this.
+ */
+export async function deletePastDate(budgetId: string): Promise<void> {
+  const { supabase } = await requireCouple();
+  if (!(await isEditablePastDate(supabase, budgetId))) return;
+
+  const { error } = await supabase.from("budgets").delete().eq("id", budgetId);
   if (error) throw error;
   revalidatePath("/citas");
 }
