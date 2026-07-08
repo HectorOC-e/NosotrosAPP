@@ -1,5 +1,6 @@
 import { createClient } from "@/lib/supabase/server";
 import { parseDbDate, relLabel } from "@/lib/format";
+import { getActiveBudgetId } from "@/lib/queries";
 import {
   CitasClient,
   type IdeaView,
@@ -22,14 +23,10 @@ export default async function CitasPage() {
     isFavorite: row.is_favorite,
   }));
 
-  // Past dates = cita-budgets (date_idea_id set), excluding the currently active outing.
-  const { data: activeRow } = await supabase
-    .from("budgets")
-    .select("id")
-    .order("created_at", { ascending: false })
-    .limit(1)
-    .maybeSingle();
-  const activeId = activeRow?.id ?? null;
+  // Past dates = cita-budgets (date_idea_id set), excluding the currently active
+  // outing. Reuses the shared active-budget definition (same as gastos) so the
+  // two views can never disagree on what "active" means.
+  const activeId = await getActiveBudgetId(supabase);
 
   const { data: citaRows } = await supabase
     .from("budgets")

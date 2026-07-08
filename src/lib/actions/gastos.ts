@@ -2,22 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { requireCouple } from "@/lib/actions/context";
-import type { SupabaseServerClient as DB } from "@/lib/supabase/types";
-
-/** The active outing is the most recently created budget for the couple. */
-async function getActiveBudgetId(
-  supabase: DB,
-  coupleId: string,
-): Promise<string | null> {
-  const { data } = await supabase
-    .from("budgets")
-    .select("id")
-    .eq("couple_id", coupleId)
-    .order("created_at", { ascending: false })
-    .limit(1)
-    .maybeSingle();
-  return data?.id ?? null;
-}
+import { getActiveBudgetId } from "@/lib/queries";
 
 export async function saveOuting(input: { name: string; limit: number }) {
   const { supabase, coupleId } = await requireCouple();
