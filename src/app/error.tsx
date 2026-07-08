@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect } from "react";
+import { useEffect, useTransition } from "react";
 import { useRouter } from "next/navigation";
 
 /**
@@ -17,6 +17,7 @@ export default function RootError({
   reset: () => void;
 }) {
   const router = useRouter();
+  const [, startTransition] = useTransition();
 
   useEffect(() => {
     console.error(error);
@@ -34,9 +35,13 @@ export default function RootError({
       <button
         onClick={() => {
           // reset() only clears the boundary's state and re-renders the same RSC
-          // payload, which still carries the rejection. Refetch it first.
-          router.refresh();
-          reset();
+          // payload, which still carries the rejection. router.refresh() fetches a
+          // fresh one; both must sit in the same transition so reset() does not
+          // re-render the stale payload before the refetch lands.
+          startTransition(() => {
+            router.refresh();
+            reset();
+          });
         }}
         className="btn-primary px-8"
       >
