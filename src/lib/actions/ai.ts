@@ -215,8 +215,16 @@ export async function generateDateIdea(input: {
   const vibes = input.filters.filter((f) =>
     (VIBE_CATS as readonly string[]).includes(f),
   );
-  const { data: existing } = await supabase.from("date_ideas").select("text").limit(15);
-  const avoid = (existing ?? []).map((r) => r.text);
+  const [{ data: existing }, { data: started }] = await Promise.all([
+    supabase.from("date_ideas").select("text").limit(15),
+    supabase.from("budgets").select("date_ideas(text)").not("date_idea_id", "is", null),
+  ]);
+  const startedTexts = ((started ?? []) as { date_ideas: { text: string } | null }[])
+    .map((b) => b.date_ideas?.text)
+    .filter((t): t is string => !!t);
+  const avoid = Array.from(
+    new Set([...startedTexts, ...(existing ?? []).map((r) => r.text)]),
+  ).slice(0, 20);
   const coupleContext = await buildCoupleContext(supabase, coupleId);
   const res = await callCoupleAI(
     coupleId,
