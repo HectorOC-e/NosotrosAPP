@@ -989,14 +989,17 @@ Y el checkbox — hoy `onClick={() => startTransition(() => togglePendiente(p.id
 ```tsx
               onClick={() =>
                 startTransition(async () => {
-                  const r = await togglePendiente(p.id, !p.done);
-                  if (!r.ok) sileo.error({ title: r.message });
+                  const done = !p.done;
+                  const r = await togglePendiente(p.id, done);
+                  if (r.ok)
+                    sileo.success({
+                      title: done ? "Marcado como hecho" : "Marcado como pendiente",
+                      duration: 2000,
+                    });
+                  else sileo.error({ title: r.message });
                 })
               }
 ```
-
-> El toggle **no** lleva toast de éxito: el checkbox ya se marca. Un toast por cada tap de checkbox sería
-> insoportable. Esta es la única excepción a "éxito y error", y es deliberada.
 
 - [ ] **Step 5: `comunicacion-client.tsx`**
 
@@ -1014,12 +1017,11 @@ El único call site es el `onClick` de los emojis de ánimo — hoy
                         row.isMe &&
                         startTransition(async () => {
                           const r = await setMood(em);
-                          if (!r.ok) sileo.error({ title: r.message });
+                          if (r.ok) sileo.success({ title: "Ánimo guardado", duration: 2000 });
+                          else sileo.error({ title: r.message });
                         })
                       }
 ```
-
-> Tampoco lleva toast de éxito: el emoji seleccionado se resalta al instante. Misma razón que el checkbox.
 
 - [ ] **Step 6: `about-us-form.tsx`**
 
@@ -1121,9 +1123,13 @@ Repetir la misma maniobra con `Editar` → escribir → `Enter`. Mismo toast de 
 - [ ] **Step 4: (A) — los toasts de éxito**
 
 Con datos consistentes: renombrar (toast "Cita renombrada"), borrar (toast "Cita borrada"), agregar una idea
-(toast "Idea agregada"), registrar un gasto en `/gastos` (toast "Gasto registrado").
-Comprobar que marcar un pendiente en `/calendario` y elegir un ánimo en `/comunicacion` **no** lanzan toast de
-éxito (excepciones deliberadas).
+(toast "Idea agregada"), registrar un gasto en `/gastos` (toast "Gasto registrado"), marcar un pendiente en
+`/calendario` (toast "Marcado como hecho") y elegir un ánimo en `/comunicacion` (toast "Ánimo guardado").
+Las 13 acciones llevan toast de éxito, sin excepciones.
+
+Comprobar además que **toasts en ráfaga no se apilan hasta tapar la pantalla**: marcar y desmarcar un
+pendiente cinco veces seguidas. `sileo` debe apilarlos o reemplazarlos con gracia. Si el resultado es una
+pila que cubre la app, es un hallazgo a reportar, no algo que arreglar por cuenta propia.
 
 - [ ] **Step 5: (B) — el error boundary**
 
@@ -1158,8 +1164,10 @@ antes. Escribir el resultado real —incluidos los fallos, si los hubo— en `.s
 - Los `return ok()` ante entrada vacía (`addIdea`, `renameOuting`, `saveGeneratedIdea`, `saveOuting`,
   `addExpense`, `addPendiente`) **no son errores tragados**: el cliente ya impide esos casos, no hay nada que
   hacer y no hay nada que reportar. Son distintos de los `fail(...)`.
-- `togglePendiente` y `setMood` no llevan toast de éxito. Es deliberado y está justificado en el plan (el
-  checkbox y el emoji ya dan feedback inmediato); no es un olvido.
+- **Las 13 acciones llevan toast de éxito, sin excepciones**, incluidos `togglePendiente` y `setMood`. Es una
+  decisión explícita del usuario, tomada tras plantearle que un toast por cada tap de checkbox o de emoji es
+  ruidoso. No la marques como defecto: si crees que el resultado en pantalla es insostenible, dilo como
+  observación de UX y que el humano decida.
 - `about-us-form.tsx` pierde su mensaje en línea a cambio del toast. Es un cambio de UI intencional: un solo
   canal de feedback.
 - No se toca `ai.ts` ni `onboarding.ts`. Sus canales de error propios están fuera de alcance por decisión del
