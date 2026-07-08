@@ -109,7 +109,7 @@ async function isEditablePastDate(
 /** Renames a past outing. The spend shown next to it is derived, not editable. */
 export async function renameOuting(budgetId: string, label: string): Promise<void> {
   const { supabase } = await requireCouple();
-  const next = label.trim().slice(0, 60);
+  const next = label.slice(0, 60).trim();
   if (!next) return;
   if (!(await isEditablePastDate(supabase, budgetId))) return;
 

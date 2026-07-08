@@ -453,23 +453,25 @@ export function CitasClient({
                     >
                       Editar
                     </button>
-                    {confirmingId === d.id ? (
-                      <button
-                        onClick={() => confirmDelete(d.id)}
-                        disabled={pending}
-                        className="p-1 text-[13px] text-alert transition hover:brightness-110"
-                      >
-                        ¿Seguro?
-                      </button>
-                    ) : (
-                      <button
-                        onClick={() => armDelete(d.id)}
-                        disabled={pending}
-                        className="p-1 text-[13px] text-ink-secondary transition hover:text-alert"
-                      >
-                        Eliminar
-                      </button>
-                    )}
+                    <span aria-live="polite">
+                      {confirmingId === d.id ? (
+                        <button
+                          onClick={() => confirmDelete(d.id)}
+                          disabled={pending}
+                          className="p-1 text-[13px] text-alert transition hover:brightness-110"
+                        >
+                          ¿Seguro?
+                        </button>
+                      ) : (
+                        <button
+                          onClick={() => armDelete(d.id)}
+                          disabled={pending}
+                          className="p-1 text-[13px] text-ink-secondary transition hover:text-alert"
+                        >
+                          Eliminar
+                        </button>
+                      )}
+                    </span>
                   </>
                 )}
               </div>
