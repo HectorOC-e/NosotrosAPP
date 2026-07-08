@@ -1,5 +1,5 @@
 import { createClient } from "@/lib/supabase/server";
-import { getSessionContext } from "@/lib/queries";
+import { getActiveBudget, getSessionContext } from "@/lib/queries";
 import { derivePartners } from "@/lib/partners";
 import { money } from "@/lib/format";
 import { budgetColor } from "@/lib/constants";
@@ -10,12 +10,7 @@ export default async function GastosPage() {
   const ctx = await getSessionContext();
   const { personA, personB, meSlot } = derivePartners(ctx!);
 
-  const { data: budget } = await supabase
-    .from("budgets")
-    .select("*")
-    .order("created_at", { ascending: false })
-    .limit(1)
-    .maybeSingle();
+  const budget = await getActiveBudget(supabase);
 
   const expenseRows = budget
     ? (

@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/server";
-import { getSessionContext } from "@/lib/queries";
+import { getActiveBudget, getSessionContext } from "@/lib/queries";
 import { derivePartners } from "@/lib/partners";
 import {
   parseDbDate,
@@ -31,12 +31,7 @@ export default async function InicioPage() {
     upcoming.find((e) => daysUntil(e.date) >= 0) ?? upcoming[0] ?? null;
 
   // ── Presupuesto activo ──
-  const { data: budget } = await supabase
-    .from("budgets")
-    .select("*")
-    .order("created_at", { ascending: false })
-    .limit(1)
-    .maybeSingle();
+  const budget = await getActiveBudget(supabase);
   const { data: exp } = budget
     ? await supabase.from("expenses").select("amount").eq("budget_id", budget.id)
     : { data: [] as { amount: number }[] };

@@ -404,6 +404,16 @@ export function CitasClient({
               <div
                 key={d.id}
                 className="glass-subtle flex items-center gap-2.5 rounded-2xl px-3.5 py-3"
+                onBlur={(e) => {
+                  // Tapping outside the row cancels the edit. Focus moving *within*
+                  // the row must not, or a click on Guardar would never land.
+                  if (
+                    editingId === d.id &&
+                    !e.currentTarget.contains(e.relatedTarget as Node | null)
+                  ) {
+                    setEditingId(null);
+                  }
+                }}
               >
                 {editingId === d.id ? (
                   <>
@@ -424,7 +434,12 @@ export function CitasClient({
                       aria-label="Nuevo nombre de la cita"
                       className="field !rounded-xl !py-2 flex-1 text-[14px]"
                     />
+                    {/* preventDefault on mousedown keeps focus on the input, so the
+                        row's onBlur never fires ahead of these buttons' onClick —
+                        Safari and Firefox don't focus a button when it is clicked. */}
                     <button
+                      type="button"
+                      onMouseDown={(e) => e.preventDefault()}
                       onClick={() => commitRename(d)}
                       disabled={pending}
                       className="p-1 text-[13px] text-rosa transition hover:brightness-110"
@@ -432,6 +447,8 @@ export function CitasClient({
                       Guardar
                     </button>
                     <button
+                      type="button"
+                      onMouseDown={(e) => e.preventDefault()}
                       onClick={() => setEditingId(null)}
                       disabled={pending}
                       className="p-1 text-[13px] text-ink-secondary transition hover:text-ink"
@@ -447,6 +464,7 @@ export function CitasClient({
                       L {money(d.spent)}
                     </span>
                     <button
+                      type="button"
                       onClick={() => beginEdit(d)}
                       disabled={pending}
                       className="p-1 text-[13px] text-ink-secondary transition hover:text-ink"
@@ -456,6 +474,7 @@ export function CitasClient({
                     <span aria-live="polite">
                       {confirmingId === d.id ? (
                         <button
+                          type="button"
                           onClick={() => confirmDelete(d.id)}
                           disabled={pending}
                           className="p-1 text-[13px] text-alert transition hover:brightness-110"
@@ -464,6 +483,7 @@ export function CitasClient({
                         </button>
                       ) : (
                         <button
+                          type="button"
                           onClick={() => armDelete(d.id)}
                           disabled={pending}
                           className="p-1 text-[13px] text-ink-secondary transition hover:text-alert"
