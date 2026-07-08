@@ -66,11 +66,37 @@ En una frase: **4xx significa "tu sesión no vale"; red y 5xx significan "no pud
 
 ## Alcance
 
-Dentro: `middleware.ts`, `getSessionContext()` en `queries.ts`, un módulo nuevo con el discriminador, y un
-`src/app/error.tsx` nuevo.
+Dentro: `middleware.ts`, `getSessionContext()` en `queries.ts`, un módulo nuevo con el discriminador, un
+`src/app/error.tsx` nuevo, y **`requireCouple()` en `lib/actions/context.ts`** (ver decisión 5).
 
-Fuera: `getActiveBudget` (ya lanza), las 13 mutaciones (ya devuelven `ActionResult`), `(app)/error.tsx` y
-`global-error.tsx` (ya existen y funcionan). Sin cambios de esquema, sin migraciones, sin dependencias nuevas.
+Fuera: `getActiveBudget` (ya lanza), `global-error.tsx` (ya existe y funciona). Sin cambios de esquema, sin
+migraciones, sin dependencias nuevas.
+
+> **Corrección tras la revisión final.** La versión original de este documento excluía las 13 mutaciones
+> "porque ya devuelven `ActionResult`". **Era inexacto.** Todas llaman a `requireCouple()`, que corre *antes* de
+> cualquier `ActionResult` y hace `redirect("/login")` cuando `!user` — descartando el `error` de
+> `auth.getUser()` igual que hacía el middleware. Un usuario que envía un formulario durante un blip de red es
+> expulsado a `/login`: el síntoma original, por una puerta que el diseño no vio. Se incluye en el alcance.
+
+## Decisión 5 — `requireCouple()` también deja de fingir un logout
+
+`requireCouple()` (`src/lib/actions/context.ts`) descarta **dos** errores: el de `auth.getUser()` y el de la
+consulta a `profiles`. En ambos casos acaba en `redirect("/login")`.
+
+Pasa a usar el mismo discriminador:
+
+- `auth.getUser()` con un error que **no** es de sesión ausente → `throw`.
+- La consulta a `profiles` con `error` → `throw`.
+- Sin usuario, o sin `couple_id`, de verdad → `redirect("/login")`, como hoy.
+
+**Consecuencia de UX, aceptada explícitamente por el usuario:** cuando una mutación falla por red, la Server
+Action rechaza y el usuario ve la pantalla **"Algo se nos cayó"** a pantalla completa (con `Reintentar`), no un
+toast. Es peor que un toast y mucho mejor que un cierre de sesión falso. Unificar esto con el canal de toasts
+—que exigiría que `requireCouple` devolviera `ActionResult` y que las 13 acciones lo propagaran— es una entrega
+aparte.
+
+`/api/mediator` (`route.ts`) tiene la misma forma pero **falla cerrado a un `401`**, no a un redirect. Queda
+fuera: un 401 no finge un cierre de sesión, y su cliente ya muestra un mensaje. Anotado en el backlog.
 
 ## Arquitectura
 

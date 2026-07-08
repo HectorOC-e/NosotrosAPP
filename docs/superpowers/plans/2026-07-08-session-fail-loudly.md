@@ -362,6 +362,90 @@ git commit -m "fix(auth): getSessionContext throws instead of faking a logged-ou
 
 ---
 
+### Task 3b: `requireCouple()` deja de fingir un logout
+
+*(Añadida tras la revisión final de rama, con decisión explícita del humano. Ver la decisión 5 del spec.)*
+
+**Files:**
+- Modify: `src/lib/actions/context.ts` (el import y la función `requireCouple`)
+
+**Interfaces:**
+- Consumes: `sessionIsMissing(error: unknown): boolean` de `@/lib/supabase/auth-error` (Task 1).
+- Produces: `requireCouple()` mantiene su firma y su valor de retorno. Sigue haciendo `redirect("/login")` cuando
+  genuinamente no hay sesión o no hay pareja. Pero ahora **lanza** cuando no pudo determinarlo. Sus 13
+  llamadores (todas las mutaciones) no cambian.
+
+**Por qué existe esta tarea:** las 13 mutaciones llaman a `requireCouple()`, que corre **antes** de cualquier
+`ActionResult`. Hoy descarta el `error` de `auth.getUser()` y el de la consulta a `profiles`, y en ambos casos
+redirige a `/login`. Un usuario que envía un formulario durante un blip de red es expulsado — el síntoma
+original, por una puerta que el resto de la rama no cierra.
+
+- [ ] **Step 1: Añadir el import**
+
+En `src/lib/actions/context.ts`, tras `import { createClient } from "@/lib/supabase/server";` añade:
+
+```ts
+import { sessionIsMissing } from "@/lib/supabase/auth-error";
+```
+
+- [ ] **Step 2: Reescribir el cuerpo**
+
+Reemplaza la función entera (deja su JSDoc, ampliándolo como se muestra) por:
+
+```ts
+/**
+ * Resolves the authenticated user and their couple for a mutation.
+ * Redirects to /login when there is no session or no linked couple.
+ *
+ * Throws when it could not determine either — a network failure must not be
+ * dressed up as a logout. The thrown error reaches the nearest error boundary,
+ * so the user sees "Algo se nos cayó" rather than being bounced to /login.
+ */
+export async function requireCouple() {
+  const supabase = await createClient();
+  const {
+    data: { user },
+    error: authErr,
+  } = await supabase.auth.getUser();
+  // "There is no session" is a legitimate answer. "We could not ask" is a failure.
+  if (authErr && !sessionIsMissing(authErr)) throw authErr;
+  if (!user) redirect("/login");
+
+  const { data: profile, error: profileErr } = await supabase
+    .from("profiles")
+    .select("id, couple_id, display_name")
+    .eq("id", user.id)
+    .maybeSingle();
+  if (profileErr) throw profileErr;
+
+  if (!profile?.couple_id) redirect("/login");
+
+  return { supabase, userId: user.id, coupleId: profile.couple_id, profile };
+}
+```
+
+Notas para quien lo escribe:
+- **No envuelvas nada en try/catch.** `redirect()` funciona lanzando un error especial de Next; un catch lo
+  tragaría y el usuario se quedaría en una pantalla rota en vez de ir a `/login`.
+- `.maybeSingle()` devuelve `data: null, error: null` cuando no hay fila, así que `throw profileErr` no rompe el
+  caso legítimo "este usuario aún no tiene perfil": ese sigue cayendo en `redirect("/login")`.
+- **No toques `src/app/api/mediator/route.ts`.** Tiene la misma forma pero falla cerrado a un `401`, que no
+  finge un cierre de sesión. Está fuera de alcance por decisión del spec.
+
+- [ ] **Step 3: Verificar que el build pasa**
+
+Run: `NODE_OPTIONS=--use-system-ca corepack pnpm build`
+Expected: exit 0, `tsc` limpio.
+
+- [ ] **Step 4: Commit**
+
+```bash
+git add src/lib/actions/context.ts
+git commit -m "fix(auth): requireCouple throws instead of faking a logged-out user"
+```
+
+---
+
 ### Task 4: Verificación en vivo (la ejecuta el controlador, no un subagente)
 
 **Files:** ninguno. Es verificación, no código.
