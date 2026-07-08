@@ -121,3 +121,9 @@
     letter-spacing: 0.02em;
   }
 }
+
+/* sileo capitalizes every word of a toast title (text-transform: capitalize),
+   which is wrong for Spanish sentence-case copy. Render our strings as written. */
+[data-sileo-title] {
+  text-transform: none;
+}
