@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState, useTransition } from "react";
+import { useEffect, useMemo, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import {
@@ -9,7 +9,14 @@ import {
   COST_COLOR,
   type CostCat,
 } from "@/lib/constants";
-import { addIdea, setFavorite, startDate, saveGeneratedIdea } from "@/lib/actions/citas";
+import {
+  addIdea,
+  setFavorite,
+  startDate,
+  saveGeneratedIdea,
+  renameOuting,
+  deletePastDate,
+} from "@/lib/actions/citas";
 import { generateDateIdea } from "@/lib/actions/ai";
 import { aiReasonMessage } from "@/lib/ai/reason-messages";
 import { money } from "@/lib/format";
@@ -81,6 +88,55 @@ export function CitasClient({
       const r = await startDate(id);
       if (r.ok) router.push("/gastos");
     });
+  }
+
+  // --- Past-dates history: inline rename + two-tap delete ---
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [draft, setDraft] = useState("");
+  const [confirmingId, setConfirmingId] = useState<string | null>(null);
+  const confirmTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Disarming is time-based, so the timer must not outlive the component or the row.
+  useEffect(() => {
+    return () => {
+      if (confirmTimer.current) clearTimeout(confirmTimer.current);
+    };
+  }, []);
+
+  function disarmDelete() {
+    if (confirmTimer.current) {
+      clearTimeout(confirmTimer.current);
+      confirmTimer.current = null;
+    }
+    setConfirmingId(null);
+  }
+
+  function beginEdit(d: PastDate) {
+    disarmDelete();
+    setDraft(d.name);
+    setEditingId(d.id);
+  }
+
+  function commitRename(d: PastDate) {
+    const next = draft.trim();
+    setEditingId(null);
+    if (!next || next === d.name) return;
+    startTransition(() => renameOuting(d.id, next));
+  }
+
+  function armDelete(id: string) {
+    setEditingId(null);
+    if (confirmTimer.current) clearTimeout(confirmTimer.current);
+    setConfirmingId(id);
+    confirmTimer.current = setTimeout(() => {
+      confirmTimer.current = null;
+      setConfirmingId(null);
+    }, 4000);
+  }
+
+  function confirmDelete(id: string) {
+    disarmDelete();
+    startTransition(() => deletePastDate(id));
   }
 
   const [aiIdea, setAiIdea] = useState<{ text: string; cost: CostCat; vibes: string[] } | null>(null);
@@ -349,11 +405,73 @@ export function CitasClient({
                 key={d.id}
                 className="glass-subtle flex items-center gap-2.5 rounded-2xl px-3.5 py-3"
               >
-                <span className="flex-1 text-[14px] text-ink">{d.name}</span>
-                <span className="text-[12px] text-ink-tertiary">{d.whenLabel}</span>
-                <span className="tnum text-[13px] text-ink-secondary">
-                  L {money(d.spent)}
-                </span>
+                {editingId === d.id ? (
+                  <>
+                    <input
+                      autoFocus
+                      value={draft}
+                      maxLength={60}
+                      onChange={(e) => setDraft(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter") {
+                          e.preventDefault();
+                          commitRename(d);
+                        } else if (e.key === "Escape") {
+                          e.preventDefault();
+                          setEditingId(null);
+                        }
+                      }}
+                      aria-label="Nuevo nombre de la cita"
+                      className="field !rounded-xl !py-2 flex-1 text-[14px]"
+                    />
+                    <button
+                      onClick={() => commitRename(d)}
+                      disabled={pending}
+                      className="p-1 text-[13px] text-rosa transition hover:brightness-110"
+                    >
+                      Guardar
+                    </button>
+                    <button
+                      onClick={() => setEditingId(null)}
+                      disabled={pending}
+                      className="p-1 text-[13px] text-ink-secondary transition hover:text-ink"
+                    >
+                      Cancelar
+                    </button>
+                  </>
+                ) : (
+                  <>
+                    <span className="flex-1 text-[14px] text-ink">{d.name}</span>
+                    <span className="text-[12px] text-ink-tertiary">{d.whenLabel}</span>
+                    <span className="tnum text-[13px] text-ink-secondary">
+                      L {money(d.spent)}
+                    </span>
+                    <button
+                      onClick={() => beginEdit(d)}
+                      disabled={pending}
+                      className="p-1 text-[13px] text-ink-secondary transition hover:text-ink"
+                    >
+                      Editar
+                    </button>
+                    {confirmingId === d.id ? (
+                      <button
+                        onClick={() => confirmDelete(d.id)}
+                        disabled={pending}
+                        className="p-1 text-[13px] text-alert transition hover:brightness-110"
+                      >
+                        ¿Seguro?
+                      </button>
+                    ) : (
+                      <button
+                        onClick={() => armDelete(d.id)}
+                        disabled={pending}
+                        className="p-1 text-[13px] text-ink-secondary transition hover:text-alert"
+                      >
+                        Eliminar
+                      </button>
+                    )}
+                  </>
+                )}
               </div>
             ))}
           </div>
