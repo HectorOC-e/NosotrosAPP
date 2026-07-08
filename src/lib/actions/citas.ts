@@ -88,18 +88,20 @@ export async function saveGeneratedIdea(input: {
  * past date the couple may edit: it exists and is visible under RLS, it is a cita
  * (`date_idea_id` set), and it is not the active outing. The UI never offers the
  * active outing, but Server Actions are client-invocable endpoints, so the server
- * checks too. Callers no-op on false — these states are unreachable from the UI
- * and a thrown error would tell the user nothing useful.
+ * checks too. Throws if the query fails (infrastructure error). Callers no-op on
+ * false — the three rejection states are unreachable from the UI and return false
+ * without error to avoid telling the user nothing useful.
  */
 async function isEditablePastDate(
   supabase: SupabaseServerClient,
   budgetId: string,
 ): Promise<boolean> {
-  const { data: budget } = await supabase
+  const { data: budget, error } = await supabase
     .from("budgets")
     .select("id, date_idea_id")
     .eq("id", budgetId)
     .maybeSingle();
+  if (error) throw error;
   if (!budget?.date_idea_id) return false;
   return budget.id !== (await getActiveBudgetId(supabase));
 }
