@@ -3,6 +3,7 @@
 import { useState, useTransition } from "react";
 import { Button } from "@/components/ui/button";
 import { addPendiente, togglePendiente } from "@/lib/actions/calendario";
+import { sileo } from "sileo";
 
 export type PendienteView = {
   id: string;
@@ -25,9 +26,14 @@ export function CalendarioClient({ items }: { items: PendienteView[] }) {
     e.preventDefault();
     if (!text.trim() || !fecha) return;
     startTransition(async () => {
-      await addPendiente({ text, fecha });
-      setText("");
-      setFecha("");
+      const r = await addPendiente({ text, fecha });
+      if (r.ok) {
+        setText("");
+        setFecha("");
+        sileo.success({ title: "Pendiente agregado", duration: 2000 });
+      } else {
+        sileo.error({ title: r.message });
+      }
     });
   }
 
@@ -64,7 +70,18 @@ export function CalendarioClient({ items }: { items: PendienteView[] }) {
             className="glass-subtle flex items-start gap-3 rounded-2xl px-4 py-3.5"
           >
             <button
-              onClick={() => startTransition(() => togglePendiente(p.id, !p.done))}
+              onClick={() =>
+                startTransition(async () => {
+                  const done = !p.done;
+                  const r = await togglePendiente(p.id, done);
+                  if (r.ok)
+                    sileo.success({
+                      title: done ? "Marcado como hecho" : "Marcado como pendiente",
+                      duration: 2000,
+                    });
+                  else sileo.error({ title: r.message });
+                })
+              }
               disabled={pending}
               aria-pressed={p.done}
               aria-label={p.done ? "Marcar como pendiente" : "Marcar como hecho"}

@@ -2,6 +2,7 @@
 
 import { useState, useTransition } from "react";
 import { saveAboutUs } from "@/lib/actions/ajustes";
+import { sileo } from "sileo";
 
 export function AboutUsForm({
   initialLocation,
@@ -26,23 +27,18 @@ export function AboutUsForm({
   const [hasKids, setHasKids] = useState(initialHasKids);
   const [about, setAbout] = useState(initialAbout);
   const [pending, startTransition] = useTransition();
-  const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
 
   function onSave() {
-    setMsg(null);
     startTransition(async () => {
-      const res = await saveAboutUs({
+      const r = await saveAboutUs({
         location,
         typicalBudget: budget,
         togetherSince,
         hasKids,
         about,
       });
-      setMsg(
-        res.ok
-          ? { ok: true, text: "Guardado ✨ La IA los conocerá mejor." }
-          : { ok: false, text: "No pudimos guardar. Intenta de nuevo." },
-      );
+      if (r.ok) sileo.success({ title: "Guardado ✨ La IA los conocerá mejor.", duration: 2600 });
+      else sileo.error({ title: r.message });
     });
   }
 
@@ -107,11 +103,6 @@ export function AboutUsForm({
       <button onClick={onSave} disabled={pending} className="btn-primary w-full disabled:opacity-60">
         {pending ? "Guardando…" : "Guardar"}
       </button>
-      {msg && (
-        <div className="mt-3 text-[13px]" style={{ color: msg.ok ? "#3ED6B5" : "#FF6B6B" }}>
-          {msg.text}
-        </div>
-      )}
     </div>
   );
 }

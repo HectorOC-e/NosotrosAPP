@@ -2,6 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { requireCouple } from "@/lib/actions/context";
+import { ok, fail, type ActionResult } from "@/lib/action-result";
 
 /** Saves shared couple context (couples) + the caller's own "about" (profiles). */
 export async function saveAboutUs(input: {
@@ -10,7 +11,7 @@ export async function saveAboutUs(input: {
   togetherSince: string;
   hasKids: boolean;
   about: string;
-}): Promise<{ ok: boolean }> {
+}): Promise<ActionResult> {
   const { supabase, coupleId, userId } = await requireCouple();
 
   const trimmedBudget = input.typicalBudget.trim();
@@ -25,17 +26,17 @@ export async function saveAboutUs(input: {
       has_kids: input.hasKids,
     })
     .eq("id", coupleId);
-  if (cErr) return { ok: false };
+  if (cErr) return fail("No pudimos guardar. Inténtenlo de nuevo.");
 
   const { error: pErr } = await supabase
     .from("profiles")
     .update({ about: input.about.trim() || null })
     .eq("id", userId);
-  if (pErr) return { ok: false };
+  if (pErr) return fail("No pudimos guardar. Inténtenlo de nuevo.");
 
   revalidatePath("/ajustes");
   revalidatePath("/inicio");
   revalidatePath("/citas");
   revalidatePath("/comunicacion");
-  return { ok: true };
+  return ok();
 }
