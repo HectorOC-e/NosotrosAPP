@@ -2,6 +2,7 @@ import "server-only";
 import { cache } from "react";
 import { createClient } from "@/lib/supabase/server";
 import type { Couple, Profile } from "@/lib/database.types";
+import type { SupabaseServerClient as DB } from "@/lib/supabase/types";
 
 export type SessionContext = {
   userId: string;
@@ -61,3 +62,23 @@ export const getSessionContext = cache(async function getSessionContext(): Promi
     partner,
   };
 });
+
+/**
+ * The active outing is the most recently created budget for the couple.
+ * Single source of truth shared by gastos (actions) and citas (page) so the
+ * two views can never disagree on what "active" means. `coupleId` is optional:
+ * pass it in server actions for explicit scoping; server components can omit it
+ * and rely on RLS.
+ */
+export async function getActiveBudgetId(
+  supabase: DB,
+  coupleId?: string,
+): Promise<string | null> {
+  let filter = supabase.from("budgets").select("id");
+  if (coupleId) filter = filter.eq("couple_id", coupleId);
+  const { data } = await filter
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  return data?.id ?? null;
+}
