@@ -3,6 +3,7 @@ import { cache } from "react";
 import { createClient } from "@/lib/supabase/server";
 import type { Budget, Couple, Profile } from "@/lib/database.types";
 import type { SupabaseServerClient as DB } from "@/lib/supabase/types";
+import { sessionIsMissing } from "@/lib/supabase/auth-error";
 
 export type SessionContext = {
   userId: string;
@@ -28,20 +29,28 @@ export const getSessionContext = cache(async function getSessionContext(): Promi
 
   const {
     data: { user },
+    error: authErr,
   } = await supabase.auth.getUser();
+  // "There is no session" is a legitimate answer. "We could not ask" is a failure,
+  // and returning null for it would look to every caller like a forced logout.
+  if (authErr && !sessionIsMissing(authErr)) throw authErr;
   if (!user) return null;
 
-  const { data: profile } = await supabase
+  const { data: profile, error: profileErr } = await supabase
     .from("profiles")
     .select("*")
     .eq("id", user.id)
     .maybeSingle();
+  if (profileErr) throw profileErr;
 
   let couple: Couple | null = null;
   let partner: Profile | null = null;
 
   if (profile?.couple_id) {
-    const [{ data: coupleRow }, { data: partnerRow }] = await Promise.all([
+    const [
+      { data: coupleRow, error: coupleErr },
+      { data: partnerRow, error: partnerErr },
+    ] = await Promise.all([
       supabase.from("couples").select("*").eq("id", profile.couple_id).maybeSingle(),
       supabase
         .from("profiles")
@@ -50,6 +59,8 @@ export const getSessionContext = cache(async function getSessionContext(): Promi
         .neq("id", user.id)
         .maybeSingle(),
     ]);
+    if (coupleErr) throw coupleErr;
+    if (partnerErr) throw partnerErr;
     couple = coupleRow;
     partner = partnerRow;
   }

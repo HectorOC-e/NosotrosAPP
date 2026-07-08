@@ -4,12 +4,12 @@ import { useEffect, useTransition } from "react";
 import { useRouter } from "next/navigation";
 
 /**
- * Catches render failures of the six authenticated screens. It lives inside the
- * (app) group, so AppHeader and BottomNav survive: the user stays in the app.
- * A toast cannot cover this — by the time this renders, no client component of
- * the failed screen is mounted.
+ * Catches render failures of the root segment's children — including a throw in
+ * (app)/layout.tsx, which (app)/error.tsx cannot catch: in Next, an error.tsx
+ * does not cover the layout of its own segment. Also covers /login, /bienvenida
+ * and /. The root layout survives, so the design system's classes are available.
  */
-export default function AppError({
+export default function RootError({
   error,
   reset,
 }: {
@@ -24,8 +24,10 @@ export default function AppError({
   }, [error]);
 
   return (
-    <div className="flex flex-col items-center justify-center py-16 text-center">
-      <div className="mb-3 text-[34px]" aria-hidden="true">🌧️</div>
+    <div className="flex min-h-dvh flex-col items-center justify-center px-6 text-center">
+      <div className="mb-3 text-[34px]" aria-hidden="true">
+        🌧️
+      </div>
       <h2 className="mb-2 font-serif text-[20px] text-ink">Algo se nos cayó</h2>
       <p className="mb-6 max-w-[260px] text-[13.5px] leading-[1.5] text-ink-tertiary">
         No fue culpa de ustedes. Vuelvan a intentarlo en un momento.
