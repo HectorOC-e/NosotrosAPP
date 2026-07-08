@@ -535,8 +535,14 @@ Ahora las seis llamadas. **(a)** `toggleFavorite` (hoy `startTransition(() => se
   function beginDate(id: string) {
     startTransition(async () => {
       const r = await startDate(id);
-      if (r.ok) router.push("/gastos");
-      else sileo.error({ title: r.message });
+      if (r.ok) {
+        // The Toaster lives in (app)/layout, which does not unmount on a same-group
+        // navigation, so this toast survives the push and lands on /gastos.
+        sileo.success({ title: "Cita empezada", duration: 2000 });
+        router.push("/gastos");
+      } else {
+        sileo.error({ title: r.message });
+      }
     });
   }
 ```
