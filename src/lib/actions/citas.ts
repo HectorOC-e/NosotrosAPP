@@ -24,7 +24,10 @@ export async function addIdea(input: {
     vibe: null,
     is_favorite: false,
   });
-  if (error) return fail("No pudimos guardar la idea. Inténtenlo de nuevo.");
+  if (error) {
+    console.error("addIdea:", error);
+    return fail("No pudimos guardar la idea. Inténtenlo de nuevo.");
+  }
   revalidatePath("/citas");
   return ok();
 }
@@ -35,7 +38,10 @@ export async function setFavorite(id: string, value: boolean): Promise<ActionRes
     .from("date_ideas")
     .update({ is_favorite: value })
     .eq("id", id);
-  if (error) return fail("No pudimos actualizar la favorita. Inténtenlo de nuevo.");
+  if (error) {
+    console.error("setFavorite:", error);
+    return fail("No pudimos actualizar la favorita. Inténtenlo de nuevo.");
+  }
   revalidatePath("/citas");
   return ok();
 }
@@ -52,7 +58,10 @@ export async function startDate(dateIdeaId: string): Promise<ActionResult> {
     .select("text")
     .eq("id", dateIdeaId)
     .maybeSingle();
-  if (readErr) return fail("No pudimos empezar la cita. Inténtenlo de nuevo.");
+  if (readErr) {
+    console.error("startDate:", readErr);
+    return fail("No pudimos empezar la cita. Inténtenlo de nuevo.");
+  }
   if (!idea) return fail("Esa idea ya no existe.");
 
   const { error } = await supabase.from("budgets").insert({
@@ -61,7 +70,10 @@ export async function startDate(dateIdeaId: string): Promise<ActionResult> {
     limit_amount: 0,
     date_idea_id: dateIdeaId,
   });
-  if (error) return fail("No pudimos empezar la cita. Inténtenlo de nuevo.");
+  if (error) {
+    console.error("startDate:", error);
+    return fail("No pudimos empezar la cita. Inténtenlo de nuevo.");
+  }
 
   revalidatePath("/citas");
   revalidatePath("/gastos");
@@ -86,7 +98,10 @@ export async function saveGeneratedIdea(input: {
     vibe: input.vibes.length ? input.vibes.join(",") : null,
     is_favorite: true,
   });
-  if (error) return fail("No pudimos guardar la idea. Inténtenlo de nuevo.");
+  if (error) {
+    console.error("saveGeneratedIdea:", error);
+    return fail("No pudimos guardar la idea. Inténtenlo de nuevo.");
+  }
   revalidatePath("/citas");
   return ok();
 }
@@ -108,14 +123,18 @@ async function checkEditablePastDate(
     .select("id, date_idea_id")
     .eq("id", budgetId)
     .maybeSingle();
-  if (error) return fail("No pudimos verificar la cita. Revisen su conexión.");
+  if (error) {
+    console.error("checkEditablePastDate:", error);
+    return fail("No pudimos verificar la cita. Revisen su conexión.");
+  }
   if (!budget?.date_idea_id) return fail("Esa cita ya no está en el historial.");
 
   // getActiveBudgetId throws on a query failure — that must not become "no active outing".
   let activeId: string | null;
   try {
     activeId = await getActiveBudgetId(supabase);
-  } catch {
+  } catch (e) {
+    console.error("checkEditablePastDate/getActiveBudgetId:", e);
     return fail("No pudimos verificar la cita. Revisen su conexión.");
   }
   if (budget.id === activeId) return fail("Esa cita ya no está en el historial.");
@@ -138,7 +157,10 @@ export async function renameOuting(
     .from("budgets")
     .update({ label: next })
     .eq("id", budgetId);
-  if (error) return fail("No pudimos renombrar la cita. Inténtenlo de nuevo.");
+  if (error) {
+    console.error("renameOuting:", error);
+    return fail("No pudimos renombrar la cita. Inténtenlo de nuevo.");
+  }
   revalidatePath("/citas");
   return ok();
 }
@@ -155,7 +177,10 @@ export async function deletePastDate(budgetId: string): Promise<ActionResult> {
   if (!guard.ok) return guard;
 
   const { error } = await supabase.from("budgets").delete().eq("id", budgetId);
-  if (error) return fail("No pudimos borrar la cita. Inténtenlo de nuevo.");
+  if (error) {
+    console.error("deletePastDate:", error);
+    return fail("No pudimos borrar la cita. Inténtenlo de nuevo.");
+  }
   revalidatePath("/citas");
   return ok();
 }

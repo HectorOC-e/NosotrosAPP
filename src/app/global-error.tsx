@@ -40,7 +40,7 @@ export default function GlobalError({
           No fue culpa de ustedes. Vuelvan a intentarlo en un momento.
         </p>
         <button
-          onClick={reset}
+          onClick={() => window.location.reload()}
           style={{
             marginTop: 8,
             padding: "12px 32px",

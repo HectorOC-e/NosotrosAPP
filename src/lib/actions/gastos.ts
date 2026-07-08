@@ -16,7 +16,8 @@ export async function saveOuting(input: {
   let activeId: string | null;
   try {
     activeId = await getActiveBudgetId(supabase, coupleId);
-  } catch {
+  } catch (e) {
+    console.error("saveOuting:", e);
     return fail("No pudimos guardar la salida. Revisen su conexión.");
   }
 
@@ -25,14 +26,20 @@ export async function saveOuting(input: {
       .from("budgets")
       .update({ label: name, limit_amount: input.limit })
       .eq("id", activeId);
-    if (error) return fail("No pudimos guardar la salida. Inténtenlo de nuevo.");
+    if (error) {
+      console.error("saveOuting:", error);
+      return fail("No pudimos guardar la salida. Inténtenlo de nuevo.");
+    }
   } else {
     const { error } = await supabase.from("budgets").insert({
       couple_id: coupleId,
       label: name,
       limit_amount: input.limit,
     });
-    if (error) return fail("No pudimos guardar la salida. Inténtenlo de nuevo.");
+    if (error) {
+      console.error("saveOuting:", error);
+      return fail("No pudimos guardar la salida. Inténtenlo de nuevo.");
+    }
   }
   revalidatePath("/gastos");
   revalidatePath("/inicio");
@@ -53,7 +60,8 @@ export async function addExpense(input: {
   let budgetId: string | null;
   try {
     budgetId = await getActiveBudgetId(supabase, coupleId);
-  } catch {
+  } catch (e) {
+    console.error("addExpense:", e);
     return fail("No pudimos registrar el gasto. Revisen su conexión.");
   }
 
@@ -63,7 +71,10 @@ export async function addExpense(input: {
       .insert({ couple_id: coupleId, label: "Salida", limit_amount: 0 })
       .select("id")
       .single();
-    if (error) return fail("No pudimos registrar el gasto. Inténtenlo de nuevo.");
+    if (error) {
+      console.error("addExpense:", error);
+      return fail("No pudimos registrar el gasto. Inténtenlo de nuevo.");
+    }
     budgetId = data.id;
   }
 
@@ -74,7 +85,10 @@ export async function addExpense(input: {
     description: desc,
     amount: input.monto,
   });
-  if (error) return fail("No pudimos registrar el gasto. Inténtenlo de nuevo.");
+  if (error) {
+    console.error("addExpense:", error);
+    return fail("No pudimos registrar el gasto. Inténtenlo de nuevo.");
+  }
   revalidatePath("/gastos");
   revalidatePath("/inicio");
   return ok();
@@ -83,7 +97,10 @@ export async function addExpense(input: {
 export async function removeExpense(id: string): Promise<ActionResult> {
   const { supabase } = await requireCouple();
   const { error } = await supabase.from("expenses").delete().eq("id", id);
-  if (error) return fail("No pudimos borrar el gasto. Inténtenlo de nuevo.");
+  if (error) {
+    console.error("removeExpense:", error);
+    return fail("No pudimos borrar el gasto. Inténtenlo de nuevo.");
+  }
   revalidatePath("/gastos");
   revalidatePath("/inicio");
   return ok();

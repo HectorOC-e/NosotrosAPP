@@ -26,13 +26,19 @@ export async function saveAboutUs(input: {
       has_kids: input.hasKids,
     })
     .eq("id", coupleId);
-  if (cErr) return fail("No pudimos guardar. Inténtenlo de nuevo.");
+  if (cErr) {
+    console.error("saveAboutUs:", cErr);
+    return fail("No pudimos guardar. Inténtenlo de nuevo.");
+  }
 
   const { error: pErr } = await supabase
     .from("profiles")
     .update({ about: input.about.trim() || null })
     .eq("id", userId);
-  if (pErr) return fail("No pudimos guardar. Inténtenlo de nuevo.");
+  if (pErr) {
+    console.error("saveAboutUs:", pErr);
+    return fail("No pudimos guardar. Inténtenlo de nuevo.");
+  }
 
   revalidatePath("/ajustes");
   revalidatePath("/inicio");

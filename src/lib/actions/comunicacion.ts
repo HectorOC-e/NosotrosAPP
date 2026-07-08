@@ -20,14 +20,20 @@ export async function setMood(emoji: string): Promise<ActionResult> {
     .eq("profile_id", userId)
     .eq("mood_date", today)
     .maybeSingle();
-  if (readErr) return fail("No pudimos guardar tu ánimo. Revisen su conexión.");
+  if (readErr) {
+    console.error("setMood:", readErr);
+    return fail("No pudimos guardar tu ánimo. Revisen su conexión.");
+  }
 
   if (existing) {
     const { error } = await supabase
       .from("moods")
       .update({ mood_emoji: emoji })
       .eq("id", existing.id);
-    if (error) return fail("No pudimos guardar tu ánimo. Inténtenlo de nuevo.");
+    if (error) {
+      console.error("setMood:", error);
+      return fail("No pudimos guardar tu ánimo. Inténtenlo de nuevo.");
+    }
   } else {
     const { error } = await supabase.from("moods").insert({
       couple_id: coupleId,
@@ -35,7 +41,10 @@ export async function setMood(emoji: string): Promise<ActionResult> {
       mood_date: today,
       mood_emoji: emoji,
     });
-    if (error) return fail("No pudimos guardar tu ánimo. Inténtenlo de nuevo.");
+    if (error) {
+      console.error("setMood:", error);
+      return fail("No pudimos guardar tu ánimo. Inténtenlo de nuevo.");
+    }
   }
   revalidatePath("/comunicacion");
   revalidatePath("/inicio");

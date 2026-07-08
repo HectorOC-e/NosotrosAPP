@@ -19,7 +19,10 @@ export async function addPendiente(input: {
     event_date: input.fecha,
     done: false,
   });
-  if (error) return fail("No pudimos agregar el pendiente. Inténtenlo de nuevo.");
+  if (error) {
+    console.error("addPendiente:", error);
+    return fail("No pudimos agregar el pendiente. Inténtenlo de nuevo.");
+  }
   revalidatePath("/calendario");
   revalidatePath("/inicio");
   return ok();
@@ -31,7 +34,10 @@ export async function togglePendiente(
 ): Promise<ActionResult> {
   const { supabase } = await requireCouple();
   const { error } = await supabase.from("events").update({ done }).eq("id", id);
-  if (error) return fail("No pudimos actualizar el pendiente. Inténtenlo de nuevo.");
+  if (error) {
+    console.error("togglePendiente:", error);
+    return fail("No pudimos actualizar el pendiente. Inténtenlo de nuevo.");
+  }
   revalidatePath("/calendario");
   revalidatePath("/inicio");
   return ok();

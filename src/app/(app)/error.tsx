@@ -21,7 +21,7 @@ export default function AppError({
 
   return (
     <div className="flex flex-col items-center justify-center py-16 text-center">
-      <div className="mb-3 text-[34px]">🌧️</div>
+      <div className="mb-3 text-[34px]" aria-hidden="true">🌧️</div>
       <h2 className="mb-2 font-serif text-[20px] text-ink">Algo se nos cayó</h2>
       <p className="mb-6 max-w-[260px] text-[13.5px] leading-[1.5] text-ink-tertiary">
         No fue culpa de ustedes. Vuelvan a intentarlo en un momento.
