@@ -1,68 +1,54 @@
-# ▶️ Retomar sesión — Nosotros (entregas 3b + 3c)
+# ▶️ Retomar sesión — Nosotros (feature: editar/borrar historial de citas)
 
-**Estado al 2026-07-07:** el plan de implementación de **3b (Historial de citas)** + **3c (Streaming del chat
-del mediador)** está **escrito y SIN EJECUTAR**, en la rama **`feat/history-streaming`** (spec + plan
-commiteados y pusheados). La ejecución quedó pendiente para la próxima sesión (posiblemente en otra PC).
+**Estado al 2026-07-07 · rama `main` @ `d912204` (desplegado en Vercel).**
 
-Todo lo anterior (mediador IA, login, cita↔salida, IA de ideas/preguntas, contexto de pareja) ya está en
-`main` y desplegado en Vercel. Ver `HANDOFF.md` y la memoria del proyecto.
+## ✅ Ya hecho y desplegado (esta tanda)
+- **3b — Historial de citas:** sección "CITAS PASADAS" en Citas (`budgets` con `date_idea_id`, excluyendo
+  la salida activa, con gasto por salida); `generateDateIdea` evita re-sugerir citas ya iniciadas.
+- **3c — Streaming del chat del mediador:** Route Handler `POST /api/mediator` (auth por cookies → key
+  service-role → OpenRouter `stream:true` → `ReadableStream` de tokens; persiste user+assistant al
+  terminar). `mediator-panel.tsx` transmite en vivo + `router.refresh()`. Se eliminó `sendMediatorMessage`.
+  Hardening de streaming aplicado (try/catch en el `pull`, flush/buffer residual, guard `!res.ok`).
+- **Deuda técnica:** `getActiveBudgetId` unificado en `lib/queries.ts` (coupleId opcional), reusado por
+  `gastos` actions y `citas/page` → una sola definición de "salida activa". Behavior-preserving.
 
----
+Merges relevantes: `8e90238` (3b+3c) y `d912204` (fix). Sin cambios de esquema en nada de lo anterior.
+Prueba en vivo del streaming: hecha por el usuario. Todo lo anterior (login, cita↔salida, mediador IA,
+contexto de pareja) ya estaba en `main`. Ver `HANDOFF.md`.
 
-## 📋 PROMPT PARA LA PRÓXIMA SESIÓN (cópialo tal cual)
+## 🔜 Siguiente feature: editar/borrar el historial de "Citas pasadas"
+Hoy la sección "CITAS PASADAS" (3b) es **solo lectura**. Objetivo: permitir **renombrar** y **borrar**
+citas del historial.
 
-> Retomamos la app **Nosotros**. Hay un plan de implementación listo y **sin ejecutar** para las entregas
-> **3b (historial de citas)** + **3c (streaming del chat del mediador)**, en la rama
-> **`feat/history-streaming`**.
->
-> **OBLIGATORIO — usa las skills de _superpowers_, tal como se venía trabajando. No implementes nada a mano
-> fuera de este flujo:**
-> 1. Carga contexto primero: `git fetch && git checkout feat/history-streaming`; lee el plan
->    `docs/superpowers/plans/2026-07-07-history-streaming.md` (fuente de verdad) y el spec
->    `docs/superpowers/specs/2026-07-07-history-streaming-design.md`; revisa `MEMORY.md` (roadmap,
->    arquitectura, gotchas de OpenRouter/proxy).
-> 2. Invoca **`superpowers:subagent-driven-development`** y ejecuta el plan **tarea por tarea**: un
->    subagente implementador por tarea (modelo económico para transcripción, estándar para integración),
->    **revisor por tarea** cuando aporte (Tareas 3–4 de streaming lo ameritan) y una **revisión final de
->    rama con el modelo más capaz (opus)** antes de mergear. Mantén el ledger en `.superpowers/sdd/`.
-> 3. Si hubiera que cambiar el plan, primero **`superpowers:brainstorming`** → **`superpowers:writing-plans`**;
->    nunca codees el cambio directo.
-> 4. Al terminar, usa **`superpowers:finishing-a-development-branch`**: `git merge --no-ff` a `main`, borra
->    la rama y `git push origin main` (Vercel redespliega). **Estas entregas NO tocan el esquema.**
->
-> **Notas de entorno / ejecución:**
-> - Build local: `NODE_OPTIONS=--use-system-ca` (proxy corporativo TLS). En PowerShell:
->   `$env:NODE_OPTIONS='--use-system-ca'; pnpm build`.
-> - Sin cambios de esquema en 3b/3c (reusan `budgets`/`expenses`/`date_ideas`/`ai_messages`). Si por algo
->   necesitaras migrar/regenerar tipos, es vía **Supabase MCP**, proyecto `iymibuwzwxzcpybcpkrp` (los
->   subagentes no tienen MCP → esos pasos los hace el controlador).
-> - Secreto: `SUPABASE_SERVICE_ROLE_KEY` ya está en Vercel; en local `.env.local` es un **placeholder**
->   (reemplázalo con el valor real solo si vas a probar el streaming en vivo local).
-> - Prueba en vivo del streaming: requiere una API key de OpenRouter configurada en Ajustes. La pareja de
->   prueba `osoriohector89@gmail.com` ya tiene una (modelo `openai/gpt-4o-mini`). Evita sembrar datos en
->   cuentas reales; prueba en `/comunicacion` con esa cuenta.
-> - El plan tiene un caveat de secuencia: `PastDate` se define en `citas-client.tsx` (Tarea 2) pero lo
->   importa `citas/page.tsx` (Tarea 1) → implementa la Tarea 2 antes de buildear la Tarea 1, o espera build
->   rojo hasta que aterrice la 2.
->
-> Empieza cargando el plan + ledger y arranca la ejecución subagent-driven. No pidas confirmación entre
-> tareas; ejecuta todo el plan y solo detente si quedas BLOCKED o al terminar.
+**Grounding ya verificado:**
+- **Sin cambios de esquema / sin migración.** `budgets` y `expenses` ya tienen RLS couple-scoped completo
+  (SELECT/INSERT/**UPDATE**/**DELETE**, `couple_id = get_my_couple_id()`): ambos miembros pueden editar/borrar.
+- Falta confirmar en brainstorming: el `ON DELETE` de la FK `expenses.budget_id → budgets.id` (¿cascada al
+  borrar el budget, o hay que borrar `expenses` primero con el cliente cookie?).
 
----
+**Decisiones de diseño a cerrar (brainstorming):**
+1. "Editar" = renombrar el `label` de la salida (el gasto es derivado, no editable). Confirmar alcance.
+2. "Borrar" = `DELETE` del budget: ¿cascada de `expenses` (se pierde el gasto) o solo ocultar? Definir.
+3. UX: reusar el patrón de las favoritas en `citas-client.tsx` (rename inline + botón borrar con
+   confirmación). Server Actions nuevas en `lib/actions/citas.ts` (`renameOuting` / `deletePastDate`) +
+   `revalidatePath("/citas")` (y `/gastos` si aplica).
+4. Guard: solo las pasadas son editables/borrables; la salida activa no está en la lista y no se toca.
 
-## Resumen del plan (5 tareas)
+## 🧭 Flujo de trabajo (OBLIGATORIO)
+Superpowers **ya está instalado** (`superpowers@superpowers-dev` v6.1.1, scope user, habilitado). Las skills
+se cargan **al iniciar sesión** — por eso conviene retomar en sesión nueva.
+1. `superpowers:brainstorming` para cerrar el diseño (puntos 1–4 arriba).
+2. `superpowers:writing-plans` para escribir el plan (a `docs/superpowers/plans/`).
+3. `superpowers:subagent-driven-development` para ejecutar tarea por tarea (implementador económico para
+   transcripción, estándar para integración; revisor cuando aporte; revisión final con opus).
+4. `superpowers:finishing-a-development-branch` para cerrar: merge `--no-ff` a `main`, borrar rama, push.
+   Mantener el ledger en `.superpowers/sdd/`.
 
-**Grupo 3b — Historial de citas (ship-able solo):**
-- **Tarea 1:** `citas/page.tsx` consulta las citas pasadas (`budgets` con `date_idea_id`, excluyendo la
-  activa) + gasto por salida; `generateDateIdea` junta los textos de citas ya iniciadas al `avoid`.
-- **Tarea 2:** sección **"CITAS PASADAS"** en `CitasClient` (+ tipo/prop `PastDate`).
-
-**Grupo 3c — Streaming del chat:**
-- **Tarea 3:** Route Handler `POST /api/mediator` (auth por cookies → key service-role → OpenRouter
-  `stream:true` → `ReadableStream` de tokens; persiste user+assistant al terminar).
-- **Tarea 4:** `mediator-panel.tsx` transmite el chat en vivo (`router.refresh()` al terminar); elimina
-  `sendMediatorMessage`.
-- **Tarea 5:** verificación (build, 3b por SQL/UI, 3c en vivo con key real).
-
-**Fuera de alcance (siguiente):** streaming de reflexión/ideas/preguntas; reflexión post-cita;
-editar/borrar historial; realtime.
+## ⚙️ Notas de entorno
+- **Build:** `NODE_OPTIONS=--use-system-ca corepack pnpm build` (proxy TLS corporativo; `pnpm` no está en
+  PATH → usar `corepack pnpm`). PowerShell: `$env:NODE_OPTIONS='--use-system-ca'`.
+- **Rama de despliegue = `main`** (Vercel redespliega al pushear). `feat/nosotros-app` es un puntero VIEJO,
+  detrás de `main`; ignorar que herramientas la sugieran como base.
+- **Supabase MCP** (solo el controlador lo tiene): proyecto `iymibuwzwxzcpybcpkrp`. Migraciones/tipos por MCP.
+- **Prueba en vivo del mediador:** cuenta de prueba `osoriohector89@gmail.com` (key OpenRouter
+  `openai/gpt-4o-mini`) en `/comunicacion`. Evitar sembrar datos en cuentas reales.
