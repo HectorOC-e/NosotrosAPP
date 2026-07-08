@@ -12,6 +12,7 @@ import {
 import { addIdea, setFavorite, startDate, saveGeneratedIdea } from "@/lib/actions/citas";
 import { generateDateIdea } from "@/lib/actions/ai";
 import { aiReasonMessage } from "@/lib/ai/reason-messages";
+import { money } from "@/lib/format";
 
 export type IdeaView = {
   id: string;
@@ -20,7 +21,20 @@ export type IdeaView = {
   isFavorite: boolean;
 };
 
-export function CitasClient({ ideas }: { ideas: IdeaView[] }) {
+export type PastDate = {
+  id: string;
+  name: string;
+  whenLabel: string;
+  spent: number;
+};
+
+export function CitasClient({
+  ideas,
+  pastDates,
+}: {
+  ideas: IdeaView[];
+  pastDates: PastDate[];
+}) {
   const [pending, startTransition] = useTransition();
   const router = useRouter();
   const [selectedFilters, setSelectedFilters] = useState<string[]>([]);
@@ -323,6 +337,31 @@ export function CitasClient({ ideas }: { ideas: IdeaView[] }) {
             Agregar idea
           </Button>
         </form>
+      </div>
+
+      {/* Past dates */}
+      <div className="mt-[22px]">
+        <div className="eyebrow mb-2.5">CITAS PASADAS</div>
+        {pastDates.length ? (
+          <div className="flex flex-col gap-2">
+            {pastDates.map((d) => (
+              <div
+                key={d.id}
+                className="glass-subtle flex items-center gap-2.5 rounded-2xl px-3.5 py-3"
+              >
+                <span className="flex-1 text-[14px] text-ink">{d.name}</span>
+                <span className="text-[12px] text-ink-tertiary">{d.whenLabel}</span>
+                <span className="tnum text-[13px] text-ink-secondary">
+                  L {money(d.spent)}
+                </span>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <div className="text-[13.5px] text-ink-tertiary">
+            Aún no han empezado ninguna cita.
+          </div>
+        )}
       </div>
     </div>
   );
