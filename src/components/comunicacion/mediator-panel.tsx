@@ -2,7 +2,8 @@
 
 import { useState, useTransition } from "react";
 import Link from "next/link";
-import { sendMediatorMessage, generateWeeklyReflection } from "@/lib/actions/ai";
+import { useRouter } from "next/navigation";
+import { generateWeeklyReflection } from "@/lib/actions/ai";
 
 export type MediatorMessage = {
   id: string;
@@ -25,6 +26,9 @@ export function MediatorPanel({
   const [text, setText] = useState("");
   const [pending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
+  const router = useRouter();
+  const [streamingUser, setStreamingUser] = useState<string | null>(null);
+  const [streamingReply, setStreamingReply] = useState("");
 
   const warm = (reason?: string) => {
     switch (reason) {
@@ -46,9 +50,40 @@ export function MediatorPanel({
     if (!t || pending) return;
     setError(null);
     setText("");
+    setStreamingUser(t);
+    setStreamingReply("");
     startTransition(async () => {
-      const res = await sendMediatorMessage(t);
-      if (!res.ok) setError(warm(res.reason));
+      try {
+        const res = await fetch("/api/mediator", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ text: t }),
+        });
+        const ctype = res.headers.get("content-type") ?? "";
+        if (!res.ok || ctype.includes("application/json") || !res.body) {
+          const j = (await res.json().catch(() => null)) as { reason?: string } | null;
+          setError(warm(j?.reason));
+          setStreamingUser(null);
+          return;
+        }
+        const reader = res.body.getReader();
+        const dec = new TextDecoder();
+        let acc = "";
+        for (;;) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          acc += dec.decode(value, { stream: true });
+          setStreamingReply(acc);
+        }
+        // Persisted server-side; refresh to load the real thread, then clear transient bubbles.
+        setStreamingUser(null);
+        setStreamingReply("");
+        router.refresh();
+      } catch {
+        setError(warm("fallo"));
+        setStreamingUser(null);
+        setStreamingReply("");
+      }
     });
   }
 
@@ -130,7 +165,17 @@ export function MediatorPanel({
             </div>
           ),
         )}
-        {pending && (
+        {streamingUser && (
+          <div className="max-w-[80%] self-end rounded-[14px_14px_4px_14px] bg-rosa/15 px-3.5 py-2.5 text-[13px] text-ink">
+            {streamingUser}
+          </div>
+        )}
+        {streamingUser && (
+          <div className="max-w-[85%] self-start rounded-[14px_14px_14px_4px] bg-white/[0.08] px-3.5 py-2.5 text-[13px] text-ink">
+            {streamingReply || "pensando…"}
+          </div>
+        )}
+        {pending && !streamingUser && (
           <div className="max-w-[80%] self-start rounded-[14px] bg-white/[0.06] px-3.5 py-2.5 text-[13px] text-ink-tertiary">
             pensando…
           </div>
