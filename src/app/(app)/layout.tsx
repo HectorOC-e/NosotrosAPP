@@ -3,6 +3,8 @@ import { getSessionContext } from "@/lib/queries";
 import { derivePartners } from "@/lib/partners";
 import { AppHeader } from "@/components/app-header";
 import { BottomNav } from "@/components/bottom-nav";
+import { Toaster } from "sileo";
+import "sileo/styles.css";
 
 export default async function AppLayout({
   children,
@@ -22,6 +24,8 @@ export default async function AppLayout({
         <div className="flex-1 overflow-y-auto px-5 pb-6 pt-5">{children}</div>
         <BottomNav />
       </div>
+      {/* offset clears the AppHeader; tuned against the browser, not by eye. */}
+      <Toaster theme="dark" position="top-center" offset={{ top: 72 }} />
     </div>
   );
 }

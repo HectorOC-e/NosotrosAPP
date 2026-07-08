@@ -20,6 +20,7 @@ import {
 import { generateDateIdea } from "@/lib/actions/ai";
 import { aiReasonMessage } from "@/lib/ai/reason-messages";
 import { money } from "@/lib/format";
+import { sileo } from "sileo";
 
 export type IdeaView = {
   id: string;
@@ -80,13 +81,25 @@ export function CitasClient({
   function toggleFavorite() {
     if (!displayIdea) return;
     const target = displayIdea;
-    startTransition(() => setFavorite(target.id, !target.isFavorite));
+    const next = !target.isFavorite;
+    startTransition(async () => {
+      const r = await setFavorite(target.id, next);
+      if (r.ok) sileo.success({ title: next ? "Guardada" : "Quitada", duration: 2000 });
+      else sileo.error({ title: r.message });
+    });
   }
 
   function beginDate(id: string) {
     startTransition(async () => {
       const r = await startDate(id);
-      if (r.ok) router.push("/gastos");
+      if (r.ok) {
+        // The Toaster lives in (app)/layout, which does not unmount on a same-group
+        // navigation, so this toast survives the push and lands on /gastos.
+        sileo.success({ title: "Cita empezada", duration: 2000 });
+        router.push("/gastos");
+      } else {
+        sileo.error({ title: r.message });
+      }
     });
   }
 
@@ -121,7 +134,11 @@ export function CitasClient({
     const next = draft.trim();
     setEditingId(null);
     if (!next || next === d.name) return;
-    startTransition(() => renameOuting(d.id, next));
+    startTransition(async () => {
+      const r = await renameOuting(d.id, next);
+      if (r.ok) sileo.success({ title: "Cita renombrada", duration: 2000 });
+      else sileo.error({ title: r.message });
+    });
   }
 
   function armDelete(id: string) {
@@ -136,7 +153,11 @@ export function CitasClient({
 
   function confirmDelete(id: string) {
     disarmDelete();
-    startTransition(() => deletePastDate(id));
+    startTransition(async () => {
+      const r = await deletePastDate(id);
+      if (r.ok) sileo.success({ title: "Cita borrada", duration: 2000 });
+      else sileo.error({ title: r.message });
+    });
   }
 
   const [aiIdea, setAiIdea] = useState<{ text: string; cost: CostCat; vibes: string[] } | null>(null);
@@ -164,11 +185,12 @@ export function CitasClient({
     if (!aiIdea) return;
     const idea = aiIdea;
     startTransition(async () => {
-      try {
-        await saveGeneratedIdea(idea);
+      const r = await saveGeneratedIdea(idea);
+      if (r.ok) {
         setAiIdea(null);
-      } catch {
-        setAiError(aiReasonMessage("fallo"));
+        sileo.success({ title: "Idea guardada", duration: 2000 });
+      } else {
+        sileo.error({ title: r.message });
       }
     });
   }
@@ -183,8 +205,13 @@ export function CitasClient({
     const text = newIdeaText.trim();
     if (!text) return;
     startTransition(async () => {
-      await addIdea({ text, cost: newIdeaCost });
-      setNewIdeaText("");
+      const r = await addIdea({ text, cost: newIdeaCost });
+      if (r.ok) {
+        setNewIdeaText("");
+        sileo.success({ title: "Idea agregada", duration: 2000 });
+      } else {
+        sileo.error({ title: r.message });
+      }
     });
   }
 
@@ -334,7 +361,13 @@ export function CitasClient({
                   Empezar
                 </button>
                 <button
-                  onClick={() => startTransition(() => setFavorite(fav.id, false))}
+                  onClick={() =>
+                    startTransition(async () => {
+                      const r = await setFavorite(fav.id, false);
+                      if (r.ok) sileo.success({ title: "Quitada", duration: 2000 });
+                      else sileo.error({ title: r.message });
+                    })
+                  }
                   disabled={pending}
                   className="p-1 text-[13px] text-ink-secondary transition hover:text-alert"
                 >

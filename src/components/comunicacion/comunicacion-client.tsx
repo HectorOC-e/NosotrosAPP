@@ -4,6 +4,7 @@ import { useState, useTransition } from "react";
 import { EMOJIS, TOPICS } from "@/lib/constants";
 import { hexToRgba } from "@/lib/utils";
 import { setMood } from "@/lib/actions/comunicacion";
+import { sileo } from "sileo";
 import { generateGuidingQuestion } from "@/lib/actions/ai";
 import { aiReasonMessage } from "@/lib/ai/reason-messages";
 import { MediatorPanel, type MediatorMessage } from "@/components/comunicacion/mediator-panel";
@@ -75,7 +76,12 @@ export function ComunicacionClient({
                       key={em}
                       disabled={!row.isMe || pending}
                       onClick={() =>
-                        row.isMe && startTransition(() => setMood(em))
+                        row.isMe &&
+                        startTransition(async () => {
+                          const r = await setMood(em);
+                          if (r.ok) sileo.success({ title: "Ánimo guardado", duration: 2000 });
+                          else sileo.error({ title: r.message });
+                        })
                       }
                       className="flex-1 rounded-[14px] border py-2.5 text-[22px] transition disabled:cursor-default"
                       style={{

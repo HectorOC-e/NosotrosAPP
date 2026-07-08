@@ -3,6 +3,7 @@
 import { useState, useTransition } from "react";
 import { Button } from "@/components/ui/button";
 import { saveOuting, addExpense, removeExpense } from "@/lib/actions/gastos";
+import { sileo } from "sileo";
 
 type Person = { id: string | null; name: string; accent: string };
 
@@ -44,7 +45,11 @@ export function GastosClient(props: Props) {
     e.preventDefault();
     const limit = parseFloat(outingLimit);
     if (!outingName.trim() || isNaN(limit) || limit <= 0) return;
-    startTransition(() => saveOuting({ name: outingName.trim(), limit }));
+    startTransition(async () => {
+      const r = await saveOuting({ name: outingName.trim(), limit });
+      if (r.ok) sileo.success({ title: "Salida guardada", duration: 2000 });
+      else sileo.error({ title: r.message });
+    });
   }
 
   function submitExpense(e: React.FormEvent) {
@@ -52,9 +57,14 @@ export function GastosClient(props: Props) {
     const amount = parseFloat(monto);
     if (!desc.trim() || isNaN(amount) || amount <= 0 || !quienId) return;
     startTransition(async () => {
-      await addExpense({ desc: desc.trim(), monto: amount, profileId: quienId });
-      setDesc("");
-      setMonto("");
+      const r = await addExpense({ desc: desc.trim(), monto: amount, profileId: quienId });
+      if (r.ok) {
+        setDesc("");
+        setMonto("");
+        sileo.success({ title: "Gasto registrado", duration: 2000 });
+      } else {
+        sileo.error({ title: r.message });
+      }
     });
   }
 
@@ -131,7 +141,13 @@ export function GastosClient(props: Props) {
             </div>
             <div className="tnum text-[14px] text-ink">L {ex.montoLabel}</div>
             <button
-              onClick={() => startTransition(() => removeExpense(ex.id))}
+              onClick={() =>
+                startTransition(async () => {
+                  const r = await removeExpense(ex.id);
+                  if (r.ok) sileo.success({ title: "Gasto borrado", duration: 2000 });
+                  else sileo.error({ title: r.message });
+                })
+              }
               disabled={pending}
               aria-label="Eliminar gasto"
               className="p-1 text-[13px] text-ink-secondary transition hover:text-alert"
