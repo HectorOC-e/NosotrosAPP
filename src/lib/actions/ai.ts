@@ -152,16 +152,6 @@ async function runMediator(
   return { ok: true };
 }
 
-/** Generates the assistant reply for a user message; persists both only on success. */
-export async function sendMediatorMessage(
-  text: string,
-): Promise<{ ok: boolean; reason?: Reason }> {
-  const trimmed = text.trim();
-  if (!trimmed) return { ok: false, reason: "fallo" };
-  const ctx = await requireCouple();
-  return runMediator(ctx, "chat", trimmed);
-}
-
 /** Generates and stores a weekly reflection (assistant row, kind='summary'). */
 export async function generateWeeklyReflection(): Promise<{
   ok: boolean;
