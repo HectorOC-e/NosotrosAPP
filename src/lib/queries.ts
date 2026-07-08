@@ -68,7 +68,8 @@ export const getSessionContext = cache(async function getSessionContext(): Promi
  * Single source of truth shared by gastos (actions) and citas (page) so the
  * two views can never disagree on what "active" means. `coupleId` is optional:
  * pass it in server actions for explicit scoping; server components can omit it
- * and rely on RLS.
+ * and rely on RLS. Throws if the query fails — callers must not treat a query
+ * error as "no active outing".
  */
 export async function getActiveBudgetId(
   supabase: DB,
@@ -76,9 +77,10 @@ export async function getActiveBudgetId(
 ): Promise<string | null> {
   let filter = supabase.from("budgets").select("id");
   if (coupleId) filter = filter.eq("couple_id", coupleId);
-  const { data } = await filter
+  const { data, error } = await filter
     .order("created_at", { ascending: false })
     .limit(1)
     .maybeSingle();
+  if (error) throw error;
   return data?.id ?? null;
 }
