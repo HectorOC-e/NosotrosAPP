@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect } from "react";
+import { useRouter } from "next/navigation";
 
 /**
  * Catches render failures of the root segment's children — including a throw in
@@ -15,6 +16,8 @@ export default function RootError({
   error: Error & { digest?: string };
   reset: () => void;
 }) {
+  const router = useRouter();
+
   useEffect(() => {
     console.error(error);
   }, [error]);
@@ -28,7 +31,15 @@ export default function RootError({
       <p className="mb-6 max-w-[260px] text-[13.5px] leading-[1.5] text-ink-tertiary">
         No fue culpa de ustedes. Vuelvan a intentarlo en un momento.
       </p>
-      <button onClick={reset} className="btn-primary px-8">
+      <button
+        onClick={() => {
+          // reset() only clears the boundary's state and re-renders the same RSC
+          // payload, which still carries the rejection. Refetch it first.
+          router.refresh();
+          reset();
+        }}
+        className="btn-primary px-8"
+      >
         Reintentar
       </button>
     </div>

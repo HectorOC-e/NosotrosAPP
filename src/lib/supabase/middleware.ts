@@ -44,7 +44,11 @@ export async function updateSession(request: NextRequest) {
   // (app) layout re-checks the session and surfaces a proper error screen.
   // Never throw here — a throw in middleware yields Next's raw 500, not error.tsx.
   if (error && !sessionIsMissing(error)) {
-    console.error("middleware auth.getUser:", error);
+    console.error(
+      "middleware auth.getUser:",
+      (error as { name?: string }).name,
+      (error as { status?: number }).status,
+    );
     return supabaseResponse;
   }
 

@@ -9,11 +9,17 @@ import { isAuthApiError, isAuthSessionMissingError } from "@supabase/supabase-js
  *
  * A 4xx from the auth API means the token is missing, malformed, expired or
  * rejected. Anything else — including AuthRetryableFetchError, which carries
- * status 0 — means the question never got answered.
+ * status 0 — means the question never got answered. 429 and 408 are the
+ * exception within the 4xx range: they mean "we refuse to answer right now",
+ * not "your session is invalid".
  */
 export function sessionIsMissing(error: unknown): boolean {
   if (isAuthSessionMissingError(error)) return true;
   if (isAuthApiError(error) && typeof error.status === "number") {
+    // 429 and 408 mean "we refuse to answer right now" — that is "we could not
+    // ask", not "your session is invalid". Treating them as a missing session
+    // would log out a user whose token is perfectly good.
+    if (error.status === 429 || error.status === 408) return false;
     return error.status >= 400 && error.status < 500;
   }
   return false;
