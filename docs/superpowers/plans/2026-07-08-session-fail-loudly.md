@@ -396,9 +396,16 @@ Expected: redirige a `/login`.
 
 - [ ] **Step 4: Caso 1 — el bug arreglado**
 
-Parar el dev server. En `.env.local`, cambiar `NEXT_PUBLIC_SUPABASE_URL` a `http://127.0.0.1:9`
-(puerto reservado, conexión rechazada → `AuthRetryableFetchError`). Arrancar el dev server. Con la sesión ya
-iniciada del caso 3, entrar a `http://localhost:3000/inicio`.
+Parar el dev server. En `.env.local`, cambiar `NEXT_PUBLIC_SUPABASE_URL` a
+`https://iymibuwzwxzcpybcpkrp.supabase.invalid` (el TLD `.invalid` no resuelve nunca, RFC 2606 →
+`AuthRetryableFetchError`). Arrancar el dev server. Con la sesión ya iniciada del caso 3, entrar a
+`http://localhost:3000/inicio`.
+
+> **No uses `http://127.0.0.1:9`.** El nombre de la cookie de sesión es `sb-<ref>-auth-token`, y `<ref>` sale
+> del primer segmento del hostname (`new URL(url).hostname.split(".")[0]`). Con `127.0.0.1` el cliente buscaría
+> `sb-127-auth-token`, no encontraría la sesión, devolvería `AuthSessionMissingError` y redirigiría a `/login`.
+> Estarías probando "usuario deslogueado", no "red caída", y concluirías que el arreglo no funciona.
+> El host `.invalid` conserva el ref (`sb-iymibuwzwxzcpybcpkrp-auth-token`) y falla en el DNS.
 Expected: se ve **"Algo se nos cayó"** con el botón `Reintentar`, y la URL sigue siendo `/inicio`.
 **NO** debe redirigir a `/login`. Eso es exactamente el bug que esta rama arregla.
 
