@@ -6,11 +6,15 @@ import { shortDateName } from "@/lib/format";
 import type { CostCat } from "@/lib/constants";
 import { getActiveBudgetId } from "@/lib/queries";
 import type { SupabaseServerClient } from "@/lib/supabase/types";
+import { ok, fail, type ActionResult } from "@/lib/action-result";
 
-export async function addIdea(input: { text: string; cost: CostCat }) {
+export async function addIdea(input: {
+  text: string;
+  cost: CostCat;
+}): Promise<ActionResult> {
   const { supabase, coupleId, userId } = await requireCouple();
   const text = input.text.trim();
-  if (!text) return;
+  if (!text) return ok(); // client already prevents this
 
   const { error } = await supabase.from("date_ideas").insert({
     couple_id: coupleId,
@@ -20,33 +24,36 @@ export async function addIdea(input: { text: string; cost: CostCat }) {
     vibe: null,
     is_favorite: false,
   });
-  if (error) throw error;
+  if (error) return fail("No pudimos guardar la idea. Inténtenlo de nuevo.");
   revalidatePath("/citas");
+  return ok();
 }
 
-export async function setFavorite(id: string, value: boolean) {
+export async function setFavorite(id: string, value: boolean): Promise<ActionResult> {
   const { supabase } = await requireCouple();
   const { error } = await supabase
     .from("date_ideas")
     .update({ is_favorite: value })
     .eq("id", id);
-  if (error) throw error;
+  if (error) return fail("No pudimos actualizar la favorita. Inténtenlo de nuevo.");
   revalidatePath("/citas");
+  return ok();
 }
 
 /**
  * Starts a date: creates a new active outing (budget) named after the idea and
  * linked to it. The previous outing (if any) stays as history with its expenses.
  */
-export async function startDate(dateIdeaId: string): Promise<{ ok: boolean }> {
+export async function startDate(dateIdeaId: string): Promise<ActionResult> {
   const { supabase, coupleId } = await requireCouple();
 
-  const { data: idea } = await supabase
+  const { data: idea, error: readErr } = await supabase
     .from("date_ideas")
     .select("text")
     .eq("id", dateIdeaId)
     .maybeSingle();
-  if (!idea) return { ok: false };
+  if (readErr) return fail("No pudimos empezar la cita. Inténtenlo de nuevo.");
+  if (!idea) return fail("Esa idea ya no existe.");
 
   const { error } = await supabase.from("budgets").insert({
     couple_id: coupleId,
@@ -54,12 +61,12 @@ export async function startDate(dateIdeaId: string): Promise<{ ok: boolean }> {
     limit_amount: 0,
     date_idea_id: dateIdeaId,
   });
-  if (error) throw error;
+  if (error) return fail("No pudimos empezar la cita. Inténtenlo de nuevo.");
 
   revalidatePath("/citas");
   revalidatePath("/gastos");
   revalidatePath("/inicio");
-  return { ok: true };
+  return ok();
 }
 
 /** Persists an AI-generated idea to the couple's favorites (with its vibes). */
@@ -67,10 +74,10 @@ export async function saveGeneratedIdea(input: {
   text: string;
   cost: CostCat;
   vibes: string[];
-}): Promise<void> {
+}): Promise<ActionResult> {
   const { supabase, coupleId, userId } = await requireCouple();
   const text = input.text.trim();
-  if (!text) return;
+  if (!text) return ok(); // client already prevents this
   const { error } = await supabase.from("date_ideas").insert({
     couple_id: coupleId,
     created_by: userId,
@@ -79,46 +86,61 @@ export async function saveGeneratedIdea(input: {
     vibe: input.vibes.length ? input.vibes.join(",") : null,
     is_favorite: true,
   });
-  if (error) throw error;
+  if (error) return fail("No pudimos guardar la idea. Inténtenlo de nuevo.");
   revalidatePath("/citas");
+  return ok();
 }
 
 /**
- * Guards the two history mutations below. Returns true only when the budget is a
+ * Guards the two history mutations below. Returns ok() only when the budget is a
  * past date the couple may edit: it exists and is visible under RLS, it is a cita
  * (`date_idea_id` set), and it is not the active outing. The UI never offers the
  * active outing, but Server Actions are client-invocable endpoints, so the server
- * checks too. Throws if the query fails (infrastructure error). Callers no-op on
- * false — the three rejection states are unreachable from the UI and return false
- * without error to avoid telling the user nothing useful.
+ * checks too. Fails closed: if we cannot determine the active outing, we refuse
+ * rather than risk deleting it and cascading its expenses away.
  */
-async function isEditablePastDate(
+async function checkEditablePastDate(
   supabase: SupabaseServerClient,
   budgetId: string,
-): Promise<boolean> {
+): Promise<ActionResult> {
   const { data: budget, error } = await supabase
     .from("budgets")
     .select("id, date_idea_id")
     .eq("id", budgetId)
     .maybeSingle();
-  if (error) throw error;
-  if (!budget?.date_idea_id) return false;
-  return budget.id !== (await getActiveBudgetId(supabase));
+  if (error) return fail("No pudimos verificar la cita. Revisen su conexión.");
+  if (!budget?.date_idea_id) return fail("Esa cita ya no está en el historial.");
+
+  // getActiveBudgetId throws on a query failure — that must not become "no active outing".
+  let activeId: string | null;
+  try {
+    activeId = await getActiveBudgetId(supabase);
+  } catch {
+    return fail("No pudimos verificar la cita. Revisen su conexión.");
+  }
+  if (budget.id === activeId) return fail("Esa cita ya no está en el historial.");
+  return ok();
 }
 
 /** Renames a past outing. The spend shown next to it is derived, not editable. */
-export async function renameOuting(budgetId: string, label: string): Promise<void> {
+export async function renameOuting(
+  budgetId: string,
+  label: string,
+): Promise<ActionResult> {
   const { supabase } = await requireCouple();
   const next = label.slice(0, 60).trim();
-  if (!next) return;
-  if (!(await isEditablePastDate(supabase, budgetId))) return;
+  if (!next) return ok(); // client already prevents this; nothing to do, nothing to report
+
+  const guard = await checkEditablePastDate(supabase, budgetId);
+  if (!guard.ok) return guard;
 
   const { error } = await supabase
     .from("budgets")
     .update({ label: next })
     .eq("id", budgetId);
-  if (error) throw error;
+  if (error) return fail("No pudimos renombrar la cita. Inténtenlo de nuevo.");
   revalidatePath("/citas");
+  return ok();
 }
 
 /**
@@ -126,11 +148,14 @@ export async function renameOuting(budgetId: string, label: string): Promise<voi
  * `expenses.budget_id -> budgets.id` is ON DELETE CASCADE, so Postgres removes the
  * child rows. Irreversible; the UI confirms with a two-tap before calling this.
  */
-export async function deletePastDate(budgetId: string): Promise<void> {
+export async function deletePastDate(budgetId: string): Promise<ActionResult> {
   const { supabase } = await requireCouple();
-  if (!(await isEditablePastDate(supabase, budgetId))) return;
+
+  const guard = await checkEditablePastDate(supabase, budgetId);
+  if (!guard.ok) return guard;
 
   const { error } = await supabase.from("budgets").delete().eq("id", budgetId);
-  if (error) throw error;
+  if (error) return fail("No pudimos borrar la cita. Inténtenlo de nuevo.");
   revalidatePath("/citas");
+  return ok();
 }
