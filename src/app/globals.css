@@ -123,7 +123,10 @@
 }
 
 /* sileo capitalizes every word of a toast title (text-transform: capitalize),
-   which is wrong for Spanish sentence-case copy. Render our strings as written. */
-[data-sileo-title] {
+   which is wrong for Spanish sentence-case copy. Render our strings as written.
+   sileo's stylesheet is imported by the (app) layout, so it loads AFTER this file
+   and would win a same-specificity tie. Repeating the attribute selector raises
+   specificity to (0,2,0) so the override wins regardless of source order. */
+[data-sileo-title][data-sileo-title] {
   text-transform: none;
 }
