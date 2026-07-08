@@ -49,9 +49,18 @@ En una frase: **4xx significa "tu sesión no vale"; red y 5xx significan "no pud
    seguridad consciente, no un descuido.
 2. **`getSessionContext()` lanza** cuando no pudo preguntar, y sigue devolviendo `null` cuando genuinamente no
    hay sesión.
-3. **Las páginas públicas muestran la misma pantalla de error.** Si Supabase no responde, tampoco se puede
-   iniciar sesión; fingir un formulario de login sería mentir. Sin código extra: el `src/app/error.tsx` nuevo
-   ya las cubre.
+3. **Las páginas públicas muestran la misma pantalla de error — cuando hay algo que preguntar.** Sin código
+   extra: el `src/app/error.tsx` nuevo ya las cubre.
+
+   **Corregido tras la verificación en vivo.** Este punto tiene un matiz que el diseño original no vio:
+   - `/login` **con** cookie de sesión y Supabase caído → pantalla de error. El cliente intenta validar el
+     token, la red falla, `getSessionContext` lanza. ✔ verificado.
+   - `/login` **sin** cookie y Supabase caído → **el formulario**, no la pantalla de error. Y es correcto: sin
+     token que validar, `auth.getUser()` corta en seco con `AuthSessionMissingError` **sin tocar la red**. No
+     hay caída que detectar. El visitante ve el login, lo intenta, y `signIn` le devuelve su mensaje cálido ya
+     existente.
+
+   No es un defecto: es que un visitante anónimo no puede enterarse de una caída que nunca consulta.
 4. **Un solo discriminador compartido.** Middleware y `getSessionContext` no pueden discrepar sobre qué es "no
    hay sesión". Mismo patrón que `getActiveBudget` como fuente única de "salida activa".
 
@@ -123,6 +132,14 @@ Los cuatro casos, contra una pareja desechable que se borra al terminar:
 
 Los casos 1 y 2 son los que demuestran que el discriminador funciona. Sin ambos no se ha probado nada: un
 cambio que lance ante *cualquier* error pasaría el 1 y fallaría el 2.
+
+**El host de la simulación importa.** No usar `http://127.0.0.1:9`: la cookie de sesión se llama
+`sb-<ref>-auth-token` y `<ref>` sale del primer segmento del hostname
+(`new URL(url).hostname.split(".")[0]`). Con `127.0.0.1` el cliente buscaría `sb-127-auth-token`, no encontraría
+sesión, devolvería `AuthSessionMissingError` y redirigiría a `/login` — se estaría probando "usuario
+deslogueado", no "red caída", y se concluiría que el arreglo no funciona. El host
+`https://iymibuwzwxzcpybcpkrp.supabase.invalid` conserva el ref y falla en el DNS (`.invalid` no resuelve
+nunca, RFC 2606).
 
 Más: `NODE_OPTIONS=--use-system-ca corepack pnpm build` verde, y comprobar que el tamaño del middleware
 (hoy 90.8 kB en la tabla de rutas) no se dispara al importar los type-guards.
